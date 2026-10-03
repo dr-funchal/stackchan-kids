@@ -109,7 +109,7 @@ private:
                         {0, 0, 500, 380, kKeep}};
             case Kind::Listen:  // Lean in toward whoever is talking
             default:
-                return {{0, 220, 250, 3500, kKeep}};
+                return {{0, 220, 250, 3500, 0x002800}};
         }
     }
 

@@ -155,21 +155,42 @@ std::string sd_paths::now()
 
 static QueueHandle_t _diary_queue = nullptr;
 
+// Lines are batched and written every 30 s (or at 2 KB), and only when internal DMA memory allows an SD
+// transfer: writing every sentence during conversations ran the SPI driver out of memory
+static constexpr uint32_t kDiaryFlushMs   = 30 * 1000;
+static constexpr size_t kDiaryFlushBytes  = 2048;
+static constexpr size_t kDiaryMaxPending  = 16 * 1024;  // Drop the oldest text beyond this
+
 static void diary_task(void*)
 {
-    std::string* line = nullptr;
-    while (xQueueReceive(_diary_queue, &line, portMAX_DELAY) == pdTRUE) {
+    std::string pending;
+    TickType_t last_flush = xTaskGetTickCount();
+    for (;;) {
+        std::string* line = nullptr;
+        if (xQueueReceive(_diary_queue, &line, pdMS_TO_TICKS(5000)) == pdTRUE && line) {
+            pending += *line;
+            delete line;
+            if (pending.size() > kDiaryMaxPending) {
+                pending.erase(0, pending.size() - kDiaryMaxPending);
+            }
+        }
+        bool due = pending.size() >= kDiaryFlushBytes ||
+                   (!pending.empty() && xTaskGetTickCount() - last_flush >= pdMS_TO_TICKS(kDiaryFlushMs));
+        if (!due || !sd_card::hasDmaHeadroom()) {
+            continue;
+        }
         std::string day  = sd_paths::today();
         std::string path = std::string(sd_paths::kDiary) + "/" + (day.empty() ? "sem-data" : day) + ".txt";
         sd_card::BusGuard guard;
         FILE* f = fopen(path.c_str(), "a");
         if (f) {
-            fputs(line->c_str(), f);
+            fputs(pending.c_str(), f);
             fclose(f);
+            pending.clear();
         } else {
             ESP_LOGW(TAG, "Cannot write diary %s", path.c_str());
         }
-        delete line;
+        last_flush = xTaskGetTickCount();
     }
 }
 
@@ -592,6 +613,9 @@ static void story_task(void* arg)
     auto* chunk = (uint8_t*)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
     size_t read = 0;
     while (chunk && !_story_stop.load()) {
+        while (!sd_card::hasDmaHeadroom() && !_story_stop.load()) {
+            vTaskDelay(pdMS_TO_TICKS(50));  // Wait for internal DMA memory rather than crash the SPI driver
+        }
         {
             sd_card::BusGuard guard;
             read = fread(chunk, 1, 4096, f);

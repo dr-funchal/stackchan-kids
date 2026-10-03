@@ -19,7 +19,6 @@
 #include <assets/lang_config.h>
 #include <hal/hal.h>
 #include <hal/utils/sd_features.h>
-#include <hal/utils/sound_plim.h>
 #include <application.h>
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 
@@ -38,6 +37,31 @@ static std::atomic<bool> _nap_requested{false};
 static void poke_activity()
 {
     _last_activity_ms.store(GetHAL().millis());
+}
+
+// "You can talk now": a thin green frame around the screen while listening. Top layer, so it sits over any face;
+// static, so it costs nothing to redraw. Caller holds the LVGL lock
+static void set_listening_frame(bool visible)
+{
+    static lv_obj_t* frame = nullptr;
+    if (!frame) {
+        frame = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(frame);
+        lv_obj_set_size(frame, 320, 240);
+        lv_obj_align(frame, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_border_width(frame, 5, 0);
+        lv_obj_set_style_border_color(frame, lv_color_hex(0x3EC300), 0);
+        lv_obj_set_style_border_opa(frame, LV_OPA_80, 0);
+        lv_obj_set_style_radius(frame, 12, 0);
+        lv_obj_set_style_bg_opa(frame, LV_OPA_TRANSP, 0);
+        lv_obj_remove_flag(frame, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(frame, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    if (visible) {
+        lv_obj_remove_flag(frame, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(frame, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // Body language: one gesture at a time, and not on every sentence
@@ -625,8 +649,11 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
     if (strcmp(status, Lang::Strings::SPEAKING) != 0 && !sd_story::isPlaying()) {
         setSceneryFrozen(false);
     }
+    set_listening_frame(is_listening_status);
     if (is_listening_status) {
         sd_recorder::onListening();
+        // Green body LEDs while leaning in = "you can talk now". No sound here: playing a sound right as listening
+        // starts (mic, AEC and wake word being switched on) corrupted the heap even when deferred (see CLAUDE.md)
         play_gesture(GestureModifier::Kind::Listen);  // Lean in: "I'm listening"
     }
     if (is_standby_status) {

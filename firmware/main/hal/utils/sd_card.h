@@ -20,6 +20,14 @@ inline constexpr const char* kMountPoint = "/sdcard";
  * one is in flight trips an assert in the SPI HAL. The guard takes the LVGL lock (so no new frame starts)
  * and waits for the current frame to finish. Keep the guarded section short: the screen is frozen meanwhile
  */
+/**
+ * @brief True if internal DMA memory can take an SD transfer right now.
+ *
+ * FATFS buffers live in PSRAM, so every SD transfer needs a temporary DMA-capable copy in internal RAM. When
+ * that runs out the SPI driver crashed (seen during long conversations), so background writers check this first
+ */
+bool hasDmaHeadroom();
+
 class BusGuard {
 public:
     BusGuard();

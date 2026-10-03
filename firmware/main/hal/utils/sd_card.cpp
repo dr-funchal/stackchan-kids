@@ -5,6 +5,7 @@
 #include <driver/gpio.h>
 #include <driver/sdspi_host.h>
 #include <driver/spi_master.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_lvgl_port.h>
 #include <esp_timer.h>
@@ -27,6 +28,11 @@ static constexpr gpio_num_t kCsPin       = GPIO_NUM_4;
 static constexpr gpio_num_t kMisoPin     = GPIO_NUM_35;  // Also the LCD D/C line
 
 static sdmmc_card_t* _card = nullptr;
+
+bool sd_card::hasDmaHeadroom()
+{
+    return heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) >= 8 * 1024;
+}
 
 sd_card::BusGuard::BusGuard()
 {

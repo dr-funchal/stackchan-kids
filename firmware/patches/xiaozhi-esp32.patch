@@ -259,17 +259,23 @@ index 99db546..68e7a82 100644
          .enable_dtx         = true,                                                                               \
          .enable_vbr         = true,                                                                               \
 diff --git a/main/audio/processors/afe_audio_processor.cc b/main/audio/processors/afe_audio_processor.cc
-index 15e9cc5..56ad993 100644
+index 15e9cc5..a8afad2 100644
 --- a/main/audio/processors/afe_audio_processor.cc
 +++ b/main/audio/processors/afe_audio_processor.cc
-@@ -53,6 +53,7 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms, srm
+@@ -53,7 +53,12 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms, srm
          afe_config->ns_init = false;
      }
  
-+    // AGC disabled again: with it on, the heap got corrupted (crash in AudioInputTask allocations)
-     afe_config->agc_init = false;
+-    afe_config->agc_init = false;
++    // Kids speak softly and from afar: normalize their level before it is encoded and sent to the server.
++    // (Once suspected of the heap corruption; the real causes were the listening sound and the scale-0 animation)
++    afe_config->agc_init = true;
++    afe_config->agc_mode = AFE_AGC_MODE_WEBRTC;
++    afe_config->agc_compression_gain_db = 12;
++    afe_config->agc_target_level_dbfs = 3;
      afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
  
+ #ifdef CONFIG_USE_DEVICE_AEC
 diff --git a/main/boards/common/i2c_device.cc b/main/boards/common/i2c_device.cc
 index 835997d..ea50d51 100644
 --- a/main/boards/common/i2c_device.cc

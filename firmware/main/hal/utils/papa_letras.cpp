@@ -324,8 +324,14 @@ static const char* kRules =
     "(sound, color, size, what it does, where it lives). (4) A single short word like \"tchau\", \"para\" or an "
     "unclear phrase does NOT end the game: ask \"vocês querem parar o jogo?\" and only call self.game.end after "
     "a clear yes. HOW TO PLAY: say the letter and its sound, call the child by name, they say a word of the theme "
-    "starting with the letter. Judge kindly: accept common words and childish pronunciations; the first sound "
-    "matters. If wrong, encourage and give a tiny hint. If the child asks for help call self.game.hint; if nobody "
+    "starting with the letter. (5) UNDERSTAND CHILD SPEECH BY SOUND: these are 4-6 year olds and the transcript "
+    "often has their pronunciation, not the real word. Before judging, find the theme word that SOUNDS closest. "
+    "Typical patterns in Portuguese: R becomes L (jacale=jacare, laposa=raposa), R dropped in clusters "
+    "(bincar=brincar, tigue=tigre), S/Z become X/CH (xapo=sapo, xebla=zebra), LH becomes L or I (abelia=abelha, "
+    "coeio=coelho), swapped or repeated syllables (cacaco=macaco, bolboleta=borboleta), cut endings "
+    "(elefan=elefante), plus speech-recognition slips (a beija=abelha). If it sounds like a valid word, ACCEPT it: "
+    "pass the CORRECT word to self.game.answer and repeat it right, warmly (\"Isso! Jacare!\"), never point out "
+    "the mistake. If you are really unsure, ask \"voce disse jacare?\". The first SOUND matters. If wrong, encourage and give a tiny hint. If the child asks for help call self.game.hint; if nobody "
     "knows after 2 tries call self.game.skip. Short, joyful sentences; cheer the panda eating the letter "
     "(nham nham!).";
 
@@ -355,9 +361,9 @@ void papa_letras::registerMcpTools()
                 });
 
     mcp.AddTool("self.game.answer",
-                "Papa-Letras: MUST be called after EVERY child answer, before commenting it. valid=true if the word "
-                "belongs to the theme and starts with the current letter. Returns the next letter and turn: never "
-                "announce them yourself.",
+                "Papa-Letras: MUST be called after EVERY child answer, before commenting it. word = the CORRECT word you "
+                "understood by sound (\"jacale\" -> \"jacare\"). valid=true if it belongs to the theme and starts "
+                "with the current letter. Returns the next letter and turn: never announce them yourself.",
                 PropertyList({Property("word", kPropertyTypeString), Property("valid", kPropertyTypeBoolean)}),
                 [](const PropertyList& properties) -> ReturnValue {
                     if (!_game.active) {

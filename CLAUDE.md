@@ -105,8 +105,9 @@ Essas tarefas são só **vítimas**: o culpado escreveu fora da memória antes. 
   `xiaozhi-esp32/main/assets/common/*.ogg`). Gerar com:
   `opusenc --framesize 60 --bitrate 16 --set-ctl-int 4024=3001 --set-ctl-int 4008=1103 --set-ctl-int 4004=1103`.
   CELT/full-band ou pacotes multi-quadro (padrão do `opusenc`) estouram o decodificador.
-- **Não tocar som dentro de `SetStatus()`**: ele roda antes de `EnableVoiceProcessing()` resetar o decodificador.
-  Use `Application::GetInstance().Schedule(...)`.
+- **Não tocar som (`PlaySound`) quando ele começa a escutar**, nem dentro de `SetStatus()` nem adiado com
+  `Schedule`: corrompeu o heap todas as vezes (mic, AEC e wake word sendo ligados). Sons durante a fala
+  (ex.: "crunch" do Papa-Letras) funcionam. O sinal de "pode falar" é visual (LEDs verdes do gesto Listen).
 - **Opus `complexity` do encoder fica em 0**: 5 estourou a pilha da tarefa do codec.
 - **Cartão SD e tela dividem o SPI3** (GPIO35 é MISO do SD e D/C da tela). Toda operação de arquivo no cartão
   precisa de `sd_card::BusGuard` (senão `assert spi_hal_setup_trans`).
