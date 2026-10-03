@@ -1071,6 +1071,9 @@ std::string StackChanCamera::Explain(const std::string& question)
 
     auto network = Board::GetInstance().GetNetwork();
     auto http    = network->CreateHttp(3);
+    // The vision server sometimes doesn't answer; tools run on the main task, so a 30 s default wait (twice)
+    // froze the robot for a minute. Give up sooner and let the AI say it couldn't see
+    http->SetTimeout(10000);
     // 构造multipart/form-data请求体
     std::string boundary = "----ESP32_CAMERA_BOUNDARY";
 

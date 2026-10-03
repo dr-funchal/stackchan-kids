@@ -9,6 +9,7 @@
 #include <esp_lvgl_port.h>
 #include <esp_psram.h>
 #include <vector>
+#include <atomic>
 #include <cstring>
 #include <src/misc/cache/lv_cache.h>
 #include <settings.h>
@@ -17,11 +18,41 @@
 #include <stackchan/stackchan.h>
 #include <assets/lang_config.h>
 #include <hal/hal.h>
+#include <hal/utils/sd_features.h>
+#include <hal/utils/sound_plim.h>
+#include <application.h>
+#include <stackchan/avatar/skins/sd/sd_skin.h>
 
 using namespace stackchan;
 using namespace stackchan::avatar;
 
 #define TAG "StackChanAvatarDisplay"
+
+// Nap mode: doze off after this long without any interaction (touch, head pet, conversation)
+static constexpr uint32_t kNapAfterMs     = 5 * 60 * 1000;
+static constexpr uint32_t kNapCheckMs     = 250;
+static constexpr uint8_t kNapBrightness   = 10;
+static std::atomic<uint32_t> _last_activity_ms{0};
+static std::atomic<bool> _nap_requested{false};
+
+static void poke_activity()
+{
+    _last_activity_ms.store(GetHAL().millis());
+}
+
+// Body language: one gesture at a time, and not on every sentence
+static constexpr uint32_t kGestureCooldownMs = 2500;
+
+static void play_gesture(GestureModifier::Kind kind)
+{
+    static uint32_t last_gesture_tick = 0;
+    uint32_t now                      = GetHAL().millis();
+    if (GestureModifier::isActive() || now - last_gesture_tick < kGestureCooldownMs || sd_story::isPlaying()) {
+        return;
+    }
+    last_gesture_tick = now;
+    GetStackChan().addModifier(std::make_unique<GestureModifier>(kind));
+}
 
 LV_FONT_DECLARE(BUILTIN_TEXT_FONT);
 LV_FONT_DECLARE(BUILTIN_ICON_FONT);
@@ -251,9 +282,27 @@ void StackChanAvatarDisplay::SetupUI()
 
     ESP_LOGI(TAG, "Creating Stack-chan Avatar...");
 
-    auto avatar = std::make_unique<DefaultAvatar>();
-    avatar->init(lv_screen_active());
-    avatar->getPanel()->onClick().connect([]() {
+    // Face: a skin chosen on the SD card, else the built-in one
+    std::unique_ptr<Avatar> avatar;
+    uitk::lvgl_cpp::Container* panel = nullptr;
+    auto skin_dir                    = sd_skin::activeSkinDir();
+    if (!skin_dir.empty()) {
+        auto sd_avatar = std::make_unique<SdSkinAvatar>();
+        if (sd_avatar->load(skin_dir)) {
+            sd_avatar->init(lv_screen_active());
+            panel  = sd_avatar->getPanel();
+            avatar = std::move(sd_avatar);
+        }
+    }
+    if (!avatar) {
+        auto builtin = std::make_unique<CurrentAvatar>();
+        builtin->init(lv_screen_active());
+        panel  = builtin->getPanel();
+        avatar = std::move(builtin);
+    }
+    panel->onClick().connect([]() {
+        poke_activity();
+
         static uint32_t last_toggle_tick = 0;
         const uint32_t now               = GetHAL().millis();
         if (last_toggle_tick != 0 && now - last_toggle_tick < 2000) {
@@ -271,6 +320,53 @@ void StackChanAvatarDisplay::SetupUI()
     blink_modifier_id_ = stackchan.addModifier(std::make_unique<BlinkModifier>());
     stackchan.addModifier(std::make_unique<HeadPetModifier>());
     stackchan.addModifier(std::make_unique<ImuEventModifier>());
+
+    // Nap mode: any head pet counts as interaction; the check runs in the LVGL task
+    poke_activity();
+    // A quick tap on the head (press and release, no swipe) starts a conversation, like tapping the screen.
+    // Petting (swipes) keeps its hearts and does not start listening
+    GetHAL().onHeadPetGesture.connect([](HeadPetGesture gesture) {
+        static uint32_t press_tick    = 0;
+        static bool swiped            = false;
+        static uint32_t last_chat_tick = 0;
+        poke_activity();
+
+        uint32_t now = GetHAL().millis();
+        if (gesture == HeadPetGesture::Press) {
+            press_tick = now;
+            swiped     = false;
+        } else if (gesture == HeadPetGesture::SwipeForward || gesture == HeadPetGesture::SwipeBackward) {
+            swiped = true;
+        } else if (gesture == HeadPetGesture::Release) {
+            bool is_tap = !swiped && press_tick != 0 && now - press_tick < 700;
+            press_tick  = 0;
+            if (is_tap && hal_bridge::is_xiaozhi_ready() && hal_bridge::is_xiaozhi_idle() &&
+                now - last_chat_tick > 2000) {
+                last_chat_tick = now;
+                hal_bridge::toggle_xiaozhi_chat_state();
+            }
+        }
+    });
+    // Stories: lip sync on the story audio, scenery held still so the decoder gets the CPU
+    sd_story::setPlaybackHook([](bool playing) {
+        static int story_lip_sync_id = -1;
+        LvglLockGuard lock;
+        auto& stackchan = GetStackChan();
+        if (playing && story_lip_sync_id < 0) {
+            story_lip_sync_id = stackchan.addModifier(std::make_unique<LipSyncModifier>());
+        } else if (!playing && story_lip_sync_id >= 0) {
+            stackchan.removeModifier(story_lip_sync_id);
+            story_lip_sync_id = -1;
+            if (stackchan.hasAvatar()) {
+                stackchan.avatar().mouth().setWeight(0);
+            }
+        }
+        setSceneryFrozen(playing);
+    });
+
+    nap_timer_ = lv_timer_create(
+        [](lv_timer_t* timer) { static_cast<StackChanAvatarDisplay*>(lv_timer_get_user_data(timer))->NapCheck(); },
+        kNapCheckMs, this);
 
     preview_image_ = lv_image_create(lv_screen_active());
     lv_obj_set_size(preview_image_, 320, 240);
@@ -333,19 +429,43 @@ void StackChanAvatarDisplay::SetEmotion(const char* emotion)
     auto& avatar = stackchan.avatar();
 
     // Map emotion string to stackchan::Emotion
-    if (strcmp(emotion, "neutral") == 0) {
+    auto is = [emotion](std::initializer_list<const char*> names) {
+        for (auto* name : names) {
+            if (strcmp(emotion, name) == 0) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Face expression plus body language (head choreography and body LEDs)
+    if (is({"neutral"})) {
         avatar.setEmotion(Emotion::Neutral);
-    } else if (strcmp(emotion, "happy") == 0) {
+    } else if (is({"happy", "laughing", "funny", "silly", "delicious"})) {
         avatar.setEmotion(Emotion::Happy);
-    } else if (strcmp(emotion, "laughing") == 0) {
-        avatar.setEmotion(Emotion::Happy);
-    } else if (strcmp(emotion, "angry") == 0) {
+        play_gesture(GestureModifier::Kind::Happy);
+    } else if (is({"angry"})) {
         avatar.setEmotion(Emotion::Angry);
-    } else if (strcmp(emotion, "sad") == 0) {
+        play_gesture(GestureModifier::Kind::Angry);
+    } else if (is({"sad", "crying"})) {
         avatar.setEmotion(Emotion::Sad);
-    } else if (strcmp(emotion, "crying") == 0) {
-        avatar.setEmotion(Emotion::Sad);
-    } else if (strcmp(emotion, "sleepy") == 0) {
+        play_gesture(GestureModifier::Kind::Sad);
+    } else if (is({"surprised", "shocked"})) {
+        avatar.setEmotion(Emotion::Neutral);
+        play_gesture(GestureModifier::Kind::Surprised);
+    } else if (is({"thinking", "confused"})) {
+        avatar.setEmotion(Emotion::Doubt);
+        play_gesture(GestureModifier::Kind::Thinking);
+    } else if (is({"loving", "kissy", "embarrassed"})) {
+        avatar.setEmotion(Emotion::Happy);
+        play_gesture(GestureModifier::Kind::Love);
+    } else if (is({"cool", "confident", "relaxed"})) {
+        avatar.setEmotion(Emotion::Neutral);
+        play_gesture(GestureModifier::Kind::Cool);
+    } else if (is({"winking"})) {
+        avatar.setEmotion(Emotion::Happy);
+        play_gesture(GestureModifier::Kind::Nod);
+    } else if (is({"sleepy"})) {
         avatar.setEmotion(Emotion::Sleepy);
         avatar.setSpeech("Zzz…");
         is_sleeping_ = true;
@@ -392,6 +512,12 @@ void StackChanAvatarDisplay::SetChatMessage(const char* role, const char* conten
     // ESP_LOGE(TAG, "SetChatMessage: role=%s, content=%s", role ? role : "null", content ? content : "null");
 
     DisplayLockGuard lock(this);
+
+    if (strcmp(role, "user") == 0) {
+        sd_diary::log("crianca", content);
+    } else if (strcmp(role, "assistant") == 0) {
+        sd_diary::log("stackchan", content);
+    }
 
     if (strcmp(role, "system") == 0) {
         stackchan.avatar().setSpeech(content);
@@ -492,6 +618,22 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
 
     DisplayLockGuard lock(this);
 
+    // Every state change (wake word, listening, speaking, back to standby) counts as interaction
+    poke_activity();
+    const bool is_standby_status   = strcmp(status, Lang::Strings::STANDBY) == 0;
+    const bool is_listening_status = strcmp(status, Lang::Strings::LISTENING) == 0;
+    if (strcmp(status, Lang::Strings::SPEAKING) != 0 && !sd_story::isPlaying()) {
+        setSceneryFrozen(false);
+    }
+    if (is_listening_status) {
+        sd_recorder::onListening();
+        play_gesture(GestureModifier::Kind::Listen);  // Lean in: "I'm listening"
+    }
+    if (is_standby_status) {
+        sd_web::start();
+    }
+    sd_story::onDeviceStatus(is_standby_status, is_listening_status);
+
     bool is_idle      = false;
     bool is_listening = false;
 
@@ -523,7 +665,9 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
 
     } else if (strcmp(status, Lang::Strings::SPEAKING) == 0) {
         if (speaking_modifier_id_ < 0) {
-            speaking_modifier_id_ = stackchan.addModifier(std::make_unique<SpeakingModifier>(0, 180, false));
+            // Leave the CPU to the audio decoder while speaking
+            setSceneryFrozen(true);
+            speaking_modifier_id_ = stackchan.addModifier(std::make_unique<LipSyncModifier>());
         }
 
         GetHAL().setRgbColor(0, 0, 0, 50);
@@ -535,23 +679,13 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
     if (is_idle) {
         // Start idle motion
         ESP_LOGW(TAG, "Start idle motion");
-        if (idle_motion_modifier_id_ < 0) {
-            if (idle_motion_level_ > 0) {
-                CreateIdleMotionModifier();
-            }
-            idle_expression_modifier_id_ = stackchan.addModifier(std::make_unique<IdleExpressionModifier>());
-        }
+        StartIdleBehaviors();
 
         _is_xiaozhi_idle = true;
     } else {
         // Stop idle motion
         ESP_LOGW(TAG, "Stop idle motion");
-        if (idle_motion_modifier_id_ >= 0) {
-            stackchan.removeModifier(idle_motion_modifier_id_);
-            idle_motion_modifier_id_ = -1;
-            stackchan.removeModifier(idle_expression_modifier_id_);
-            idle_expression_modifier_id_ = -1;
-        }
+        StopIdleBehaviors();
 
         // if (!is_listening) {
         //     // Return to default pose
@@ -570,4 +704,124 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
 
 void StackChanAvatarDisplay::ShowNotification(const char* notification, int duration_ms)
 {
+}
+
+void StackChanAvatarDisplay::StartIdleBehaviors()
+{
+    auto& stackchan = GetStackChan();
+
+    if (idle_motion_modifier_id_ < 0 && idle_motion_level_ > 0) {
+        CreateIdleMotionModifier();
+    }
+    if (idle_expression_modifier_id_ < 0) {
+        idle_expression_modifier_id_ = stackchan.addModifier(std::make_unique<IdleExpressionModifier>());
+    }
+}
+
+void StackChanAvatarDisplay::StopIdleBehaviors()
+{
+    auto& stackchan = GetStackChan();
+
+    if (idle_motion_modifier_id_ >= 0) {
+        stackchan.removeModifier(idle_motion_modifier_id_);
+        idle_motion_modifier_id_ = -1;
+    }
+    if (idle_expression_modifier_id_ >= 0) {
+        stackchan.removeModifier(idle_expression_modifier_id_);
+        idle_expression_modifier_id_ = -1;
+    }
+}
+
+// Called by the battery power save timer (esp_timer task): just hand it over to the nap check
+void StackChanAvatarDisplay::SetPowerSaveMode(bool on)
+{
+    if (on) {
+        _nap_requested.store(true);
+    } else {
+        poke_activity();
+    }
+}
+
+// Runs in the LVGL task (LVGL lock held)
+void StackChanAvatarDisplay::NapCheck()
+{
+    auto& stackchan = GetStackChan();
+    if (!stackchan.hasAvatar()) {
+        return;
+    }
+
+    // A story counts as activity: don't doze off in the middle of it
+    if (sd_story::isPlaying()) {
+        poke_activity();
+    }
+
+    uint32_t now           = GetHAL().millis();
+    uint32_t last_activity = _last_activity_ms.load();
+
+    if (is_napping_) {
+        if ((int32_t)(last_activity - nap_started_ms_) > 0) {
+            ExitNap();
+        }
+        return;
+    }
+
+    bool nap_requested = _nap_requested.exchange(false);
+    if (_is_xiaozhi_idle && (nap_requested || now - last_activity >= kNapAfterMs)) {
+        EnterNap();
+    }
+}
+
+void StackChanAvatarDisplay::EnterNap()
+{
+    ESP_LOGI(TAG, "No interaction for a while, taking a nap");
+
+    auto& stackchan = GetStackChan();
+    auto& avatar    = stackchan.avatar();
+
+    is_napping_     = true;
+    nap_started_ms_ = GetHAL().millis();
+
+    // Stop moving: no idle motion or expressions, scenery frozen, head lowered
+    StopIdleBehaviors();
+    setSceneryPaused(true);
+    stackchan.motion().pitchServo().moveWithSpeed(0, 80);
+
+    // Eyes fully closed; resync so blinking keeps them closed
+    avatar.setEmotion(Emotion::Sleepy);
+    avatar.leftEye().setWeight(0);
+    avatar.rightEye().setWeight(0);
+    avatar.mouth().setWeight(0);
+    avatar.setSpeech("Zzz…");
+    auto blink_modifier = static_cast<BlinkModifier*>(stackchan.getModifier(blink_modifier_id_));
+    if (blink_modifier) {
+        blink_modifier->resyncEyeWeights();
+    }
+
+    brightness_before_nap_ = GetHAL().getBackLightBrightness();
+    GetHAL().setBackLightBrightness(kNapBrightness);
+}
+
+void StackChanAvatarDisplay::ExitNap()
+{
+    ESP_LOGI(TAG, "Woke up from nap");
+
+    auto& stackchan = GetStackChan();
+    auto& avatar    = stackchan.avatar();
+
+    is_napping_ = false;
+
+    // Never wake up to a dark screen if the brightness read before the nap was bogus
+    GetHAL().setBackLightBrightness(brightness_before_nap_ > kNapBrightness ? brightness_before_nap_ : 75);
+
+    avatar.setEmotion(Emotion::Neutral);
+    avatar.setSpeech("");
+    auto blink_modifier = static_cast<BlinkModifier*>(stackchan.getModifier(blink_modifier_id_));
+    if (blink_modifier) {
+        blink_modifier->resyncEyeWeights();
+    }
+
+    setSceneryPaused(false);
+    if (_is_xiaozhi_idle) {
+        StartIdleBehaviors();
+    }
 }

@@ -84,7 +84,7 @@ void AppAvatar::onOpen()
     loading_page.reset();
 
     // Create default avatar
-    auto avatar = std::make_unique<avatar::DefaultAvatar>();
+    auto avatar = std::make_unique<avatar::CurrentAvatar>();
     avatar->init(lv_screen_active());
     avatar->getPanel()->onClick().connect([&]() { _screen_clicked_flag = true; });
     GetStackChan().attachAvatar(std::move(avatar));

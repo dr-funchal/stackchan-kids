@@ -5,6 +5,9 @@
 #include "application.h"
 #include "config.h"
 #include "power_save_timer.h"
+#include <hal/utils/sd_card.h>
+#include <hal/utils/sd_features.h>
+#include <hal/utils/ir_remote.h>
 #include "i2c_device.h"
 #include "axp2101.h"
 #include "settings.h"
@@ -597,6 +600,11 @@ public:
         InitializeFt6336();
         InitializeSpi();
         InitializeIli9342Display();
+        // microSD shares the LCD's SPI bus, so it can only come up after the display
+        if (sd_card::mount(true)) {
+            sd_card::logInfo();
+            sd_card::prepare();
+        }
         InitializeCamera();
         StartTouchpadTimer();
         GetBacklight()->RestoreBrightness();
@@ -639,6 +647,10 @@ public:
     {
         if (level != PowerSaveLevel::LOW_POWER) {
             power_save_timer_->WakeUp();
+        }
+        // The SD card web page needs the radio awake: max modem sleep drops incoming connections
+        if (level == PowerSaveLevel::LOW_POWER && sd_card::isMounted()) {
+            level = PowerSaveLevel::BALANCED;
         }
         WifiBoard::SetPowerSaveLevel(level);
     }

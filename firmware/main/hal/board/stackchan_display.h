@@ -19,6 +19,10 @@ private:
     int idle_expression_modifier_id_    = -1;
     int blink_modifier_id_              = -1;
     bool is_sleeping_                   = false;
+    bool is_napping_                    = false;
+    uint32_t nap_started_ms_            = 0;
+    uint8_t brightness_before_nap_      = 0;
+    lv_timer_t* nap_timer_              = nullptr;
     uint8_t idle_motion_level_          = 2;
 
     lv_obj_t* preview_image_                         = nullptr;
@@ -26,6 +30,11 @@ private:
     std::unique_ptr<LvglImage> preview_image_cached_ = nullptr;
 
     void CreateIdleMotionModifier();
+    void StartIdleBehaviors();
+    void StopIdleBehaviors();
+    void NapCheck();
+    void EnterNap();
+    void ExitNap();
 
 protected:
     virtual bool Lock(int timeout_ms = 0) override;
@@ -48,6 +57,7 @@ public:
     virtual void SetTheme(Theme* theme) override;
     virtual void SetStatus(const char* status) override;
     virtual void ShowNotification(const char* notification, int duration_ms = 3000) override;
+    virtual void SetPowerSaveMode(bool on) override;
 
     void LvglLock();
     void LvglUnlock();

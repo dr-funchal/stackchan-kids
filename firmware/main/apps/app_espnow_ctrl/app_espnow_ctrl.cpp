@@ -72,7 +72,7 @@ void AppEspnowControl::onOpen()
 
     auto& stackchan = GetStackChan();
 
-    auto avatar = std::make_unique<avatar::DefaultAvatar>();
+    auto avatar = std::make_unique<avatar::CurrentAvatar>();
     avatar->init(lv_screen_active());
     stackchan.attachAvatar(std::move(avatar));
 

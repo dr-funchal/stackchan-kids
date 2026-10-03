@@ -245,6 +245,31 @@ index 3692e0c..7bfbc5c 100644
      
      // Strategy instance
      std::unique_ptr<AssetStrategy> strategy_;
+diff --git a/main/audio/audio_service.h b/main/audio/audio_service.h
+index 99db546..68e7a82 100644
+--- a/main/audio/audio_service.h
++++ b/main/audio/audio_service.h
+@@ -69,7 +69,7 @@
+         .bitrate            = ESP_OPUS_BITRATE_AUTO,                                                              \
+         .frame_duration     = (esp_opus_enc_frame_duration_t)AS_OPUS_GET_FRAME_DRU_ENUM(OPUS_FRAME_DURATION_MS),  \
+         .application_mode   = ESP_OPUS_ENC_APPLICATION_AUDIO,                                                     \
+-        .complexity         = 0,                                                                                  \
++        .complexity         = 0,  /* Keep 0: 5 overflowed the encoder task stack and corrupted the heap */                                                                                  \
+         .enable_fec         = false,                                                                              \
+         .enable_dtx         = true,                                                                               \
+         .enable_vbr         = true,                                                                               \
+diff --git a/main/audio/processors/afe_audio_processor.cc b/main/audio/processors/afe_audio_processor.cc
+index 15e9cc5..56ad993 100644
+--- a/main/audio/processors/afe_audio_processor.cc
++++ b/main/audio/processors/afe_audio_processor.cc
+@@ -53,6 +53,7 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms, srm
+         afe_config->ns_init = false;
+     }
+ 
++    // AGC disabled again: with it on, the heap got corrupted (crash in AudioInputTask allocations)
+     afe_config->agc_init = false;
+     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
+ 
 diff --git a/main/boards/common/i2c_device.cc b/main/boards/common/i2c_device.cc
 index 835997d..ea50d51 100644
 --- a/main/boards/common/i2c_device.cc

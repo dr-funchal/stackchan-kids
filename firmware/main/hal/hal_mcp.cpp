@@ -8,6 +8,8 @@
 #include <mcp_server.h>
 #include <stackchan/stackchan.h>
 #include <apps/common/common.h>
+#include <hal/utils/sd_features.h>
+#include <hal/utils/papa_letras.h>
 
 using namespace stackchan;
 
@@ -146,4 +148,10 @@ void Hal::xiaozhi_mcp_init()
                            tools::stop_reminder(id);
                            return true;
                        });
+
+    // Voice samples, stories and skins on the microSD card
+    sd_features_register_mcp_tools();
+
+    // Papa-Letras word game
+    papa_letras::registerMcpTools();
 }

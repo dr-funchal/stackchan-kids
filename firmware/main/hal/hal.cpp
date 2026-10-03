@@ -149,13 +149,15 @@ static void _stackchan_update_task(void* param)
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(20));
 
+        // Throttle while xiaozhi is busy, but keep ~20 Hz so lip sync stays smooth.
+        // Wait before taking the LVGL lock so rendering is not blocked while sleeping
+        if (!hal_bridge::is_xiaozhi_idle()) {
+            vTaskDelay(pdMS_TO_TICKS(30));
+        }
+
         tools::update_reminders();
 
         LvglLockGuard lock;
-
-        if (!hal_bridge::is_xiaozhi_idle()) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
 
         GetStackChan().update();
 

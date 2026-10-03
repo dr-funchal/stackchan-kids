@@ -1,0 +1,158 @@
+/*
+ * SPDX-License-Identifier: MIT
+ */
+#include "sd_features.h"
+#include "sd_card.h"
+#include "ir_remote.h"
+#include <stackchan/avatar/skins/sd/sd_skin.h>
+#include <application.h>
+#include <assets/lang_config.h>
+#include <freertos/idf_additions.h>
+#include <atomic>
+#include <memory>
+#include <mcp_server.h>
+#include <esp_log.h>
+#include <esp_system.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+static const char* TAG = "SdMcp";
+
+static std::string json_list(const std::vector<std::string>& names)
+{
+    std::string json = "[";
+    for (auto& name : names) {
+        json += (json.size() > 1 ? ",\"" : "\"") + name + "\"";
+    }
+    return json + "]";
+}
+
+// IR learning waits for the remote, so it runs in its own task and answers with a sound
+struct IrLearnJob {
+    std::string name;
+    int seconds;
+};
+static std::atomic<bool> _ir_learning{false};
+
+static void ir_learn_task(void* arg)
+{
+    std::unique_ptr<IrLearnJob> job(static_cast<IrLearnJob*>(arg));
+    std::string error;
+    bool ok = ir_remote::learn(job->name, job->seconds * 1000, error);
+    if (!ok) {
+        ESP_LOGW(TAG, "IR learn failed: %s", error.c_str());
+    }
+    sd_diary::log("sistema", ((ok ? "controle aprendido: " : "controle NAO aprendido: ") + job->name).c_str());
+    Application::GetInstance().Schedule(
+        [ok]() { Application::GetInstance().PlaySound(ok ? Lang::Sounds::OGG_SUCCESS : Lang::Sounds::OGG_EXCLAMATION); });
+    _ir_learning.store(false);
+    vTaskDeleteWithCaps(nullptr);
+}
+
+void sd_features_register_mcp_tools()
+{
+    if (!sd_card::isMounted()) {
+        ESP_LOGW(TAG, "No SD card: voice, story and skin tools not registered");
+        return;
+    }
+    auto& mcp = McpServer::GetInstance();
+
+    mcp.AddTool("self.voice.record_sample",
+                "Record a voice sample of a child for voice recognition enrollment, saved on the SD card. Use when a "
+                "child asks to record or register their voice. Recording starts right after you finish speaking: "
+                "tell the child to say a few sentences after you stop talking. Ask for their name first.",
+                PropertyList({Property("name", kPropertyTypeString),
+                              Property("seconds", kPropertyTypeInteger, 8, 3, 20)}),
+                [](const PropertyList& properties) -> ReturnValue {
+                    auto name   = properties["name"].value<std::string>();
+                    int seconds = properties["seconds"].value<int>();
+                    if (!sd_recorder::arm(name, seconds)) {
+                        return std::string("Cannot record now (another recording is running, or invalid name).");
+                    }
+                    return std::string("Recording will start when you stop talking and last ") +
+                           std::to_string(seconds) + " seconds.";
+                });
+
+    mcp.AddTool("self.story.list", "List the stories and songs saved on the SD card that the robot can play.",
+                PropertyList(), [](const PropertyList&) -> ReturnValue { return json_list(sd_story::list()); });
+
+    mcp.AddTool("self.story.play",
+                "Play a story or song from the SD card (use self.story.list for names; partial names work). It "
+                "starts as soon as you finish your answer and the conversation closes; tell the child it is starting.",
+                PropertyList({Property("name", kPropertyTypeString)}),
+                [](const PropertyList& properties) -> ReturnValue {
+                    if (!sd_story::request(properties["name"].value<std::string>())) {
+                        return std::string("Story not found. Available: ") + json_list(sd_story::list());
+                    }
+                    return true;
+                });
+
+    mcp.AddTool("self.story.stop", "Stop the story or song that is playing.", PropertyList(),
+                [](const PropertyList&) -> ReturnValue {
+                    sd_story::stop();
+                    return true;
+                });
+
+    mcp.AddTool("self.skin.list", "List the face skins on the SD card. \"padrao\" is the built-in face.",
+                PropertyList(), [](const PropertyList&) -> ReturnValue {
+                    auto skins = sd_skin::list();
+                    skins.insert(skins.begin(), "padrao");
+                    return json_list(skins);
+                });
+
+    mcp.AddTool("self.skin.set",
+                "Change the robot's face to a skin from the SD card (\"padrao\" for the built-in face). The robot "
+                "restarts a few seconds later to apply it; tell the child.",
+                PropertyList({Property("name", kPropertyTypeString)}),
+                [](const PropertyList& properties) -> ReturnValue {
+                    if (!sd_skin::setActive(properties["name"].value<std::string>())) {
+                        return std::string("Skin not found.");
+                    }
+                    // Give the answer time to be spoken, then restart into the new face
+                    xTaskCreate(
+                        [](void*) {
+                            vTaskDelay(pdMS_TO_TICKS(8000));
+                            esp_restart();
+                        },
+                        "skin_restart", 2048, nullptr, 1, nullptr);
+                    return true;
+                });
+
+    mcp.AddTool("self.ir.learn",
+                "Learn a button of an infrared remote control (TV, air conditioner, fan, sound system) so you can "
+                "press it later with self.ir.send. Use a short name like \"tv_ligar\", \"tv_volume_mais\", "
+                "\"ar_desligar\". After calling, tell the person to point the remote at your body and press the "
+                "button now. You will hear a chime when it is learned, or an alert sound if nothing was received.",
+                PropertyList({Property("name", kPropertyTypeString),
+                              Property("seconds", kPropertyTypeInteger, 15, 5, 30)}),
+                [](const PropertyList& properties) -> ReturnValue {
+                    if (_ir_learning.exchange(true)) {
+                        return std::string("Already waiting for a remote button.");
+                    }
+                    auto* job = new IrLearnJob{properties["name"].value<std::string>(), properties["seconds"].value<int>()};
+                    if (xTaskCreatePinnedToCoreWithCaps(ir_learn_task, "ir_learn", 6144, job, 3, nullptr,
+                                                        tskNO_AFFINITY, MALLOC_CAP_SPIRAM) != pdPASS) {
+                        delete job;
+                        _ir_learning.store(false);
+                        return std::string("Cannot start learning.");
+                    }
+                    return std::string("Waiting for the remote button now.");
+                });
+
+    mcp.AddTool("self.ir.send",
+                "Press a learned infrared remote button: turn the TV or air conditioner on/off, change volume, etc. "
+                "Use self.ir.list to see the learned names; partial names work.",
+                PropertyList({Property("name", kPropertyTypeString)}),
+                [](const PropertyList& properties) -> ReturnValue {
+                    std::string error;
+                    if (!ir_remote::send(properties["name"].value<std::string>(), error)) {
+                        return error + ". Learned buttons: " + json_list(ir_remote::list());
+                    }
+                    return true;
+                });
+
+    mcp.AddTool("self.ir.list", "List the infrared remote buttons you have learned.", PropertyList(),
+                [](const PropertyList&) -> ReturnValue { return json_list(ir_remote::list()); });
+
+    ESP_LOGI(TAG, "SD card tools registered");
+}

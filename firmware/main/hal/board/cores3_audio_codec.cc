@@ -1,6 +1,8 @@
 #include "cores3_audio_codec.h"
 
 #include <esp_log.h>
+#include <hal/utils/audio_level.h>
+#include <hal/utils/sd_features.h>
 #include <driver/i2c_master.h>
 #include <driver/i2s_tdm.h>
 
@@ -234,12 +236,14 @@ void CoreS3AudioCodec::EnableOutput(bool enable) {
 int CoreS3AudioCodec::Read(int16_t* dest, int samples) {
     if (input_enabled_) {
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_read(input_dev_, (void*)dest, samples * sizeof(int16_t)));
+        sd_recorder::feed(dest, samples, input_channels_, input_sample_rate_);
     }
     return samples;
 }
 
 int CoreS3AudioCodec::Write(const int16_t* data, int samples) {
     if (output_enabled_) {
+        audio_level::reportOutput(data, samples);
         ESP_ERROR_CHECK_WITHOUT_ABORT(esp_codec_dev_write(output_dev_, (void*)data, samples * sizeof(int16_t)));
     }
     return samples;

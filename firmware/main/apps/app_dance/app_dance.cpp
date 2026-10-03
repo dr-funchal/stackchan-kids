@@ -53,7 +53,7 @@ void AppDance::onOpen()
     loading_page.reset();
 
     // Create default avatar
-    auto avatar = std::make_unique<avatar::DefaultAvatar>();
+    auto avatar = std::make_unique<avatar::CurrentAvatar>();
     avatar->init(lv_screen_active());
     GetStackChan().attachAvatar(std::move(avatar));
 
