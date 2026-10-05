@@ -10,6 +10,7 @@
 #include "speaking.h"
 #include "lip_sync.h"
 #include "gesture.h"
+#include "party.h"
 #include "head_pet.h"
 #include "idle_motion.h"
 #include "idle_expression.h"

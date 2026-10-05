@@ -17,4 +17,11 @@ void registerMcpTools();
 
 bool isActive();
 
+// From the display: the robot started (true) or stopped (false) listening. Drives the 20 s turn clock on the LEDs
+void onListening(bool listening);
+
+// Head controls during a game: quick tap asks for a hint, petting (swipe) skips the letter
+void onHeadTap();
+void onHeadPet();
+
 }  // namespace papa_letras

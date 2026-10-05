@@ -10,6 +10,8 @@
 #include <apps/common/common.h>
 #include <hal/utils/sd_features.h>
 #include <hal/utils/papa_letras.h>
+#include <hal/utils/panda_mandou.h>
+#include <hal/utils/stories.h>
 
 using namespace stackchan;
 
@@ -154,4 +156,10 @@ void Hal::xiaozhi_mcp_init()
 
     // Papa-Letras word game
     papa_letras::registerMcpTools();
+
+    // O Panda Mandou + color hunt
+    panda_mandou::registerMcpTools();
+
+    // Stories read aloud by the AI, page by page
+    stories::registerMcpTools();
 }

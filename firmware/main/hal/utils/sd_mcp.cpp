@@ -4,6 +4,7 @@
 #include "sd_features.h"
 #include "sd_card.h"
 #include "ir_remote.h"
+#include "stories.h"
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 #include <application.h>
 #include <assets/lang_config.h>
@@ -73,18 +74,32 @@ void sd_features_register_mcp_tools()
                            std::to_string(seconds) + " seconds.";
                 });
 
-    mcp.AddTool("self.story.list", "List the stories and songs saved on the SD card that the robot can play.",
-                PropertyList(), [](const PropertyList&) -> ReturnValue { return json_list(sd_story::list()); });
+    mcp.AddTool("self.story.list",
+                "List ALL the stories the robot has: stories you READ ALOUD (3-5 min, the main ones) and recorded "
+                "audio stories/songs on the SD card. Use whenever the children ask for a story.",
+                PropertyList(), [](const PropertyList&) -> ReturnValue {
+                    return std::string("To read aloud: ") + stories::listTitles() +
+                           ". Recorded audio: " + json_list(sd_story::list());
+                });
 
     mcp.AddTool("self.story.play",
-                "Play a story or song from the SD card (use self.story.list for names; partial names work). It "
-                "starts as soon as you finish your answer and the conversation closes; tell the child it is starting.",
+                "Tell or play a story (names from self.story.list; partial names work). For read-aloud stories it "
+                "returns page 1 with the reading rules: read it and continue with self.historia.continuar. For "
+                "recorded audio it starts when you finish talking.",
                 PropertyList({Property("name", kPropertyTypeString)}),
                 [](const PropertyList& properties) -> ReturnValue {
-                    if (!sd_story::request(properties["name"].value<std::string>())) {
-                        return std::string("Story not found. Available: ") + json_list(sd_story::list());
+                    std::string name = properties["name"].value<std::string>();
+                    // Read-aloud stories first: they return page 1 for the AI to read
+                    std::string reading;
+                    if (stories::start(name, reading, false)) {
+                        return reading;
                     }
-                    return true;
+                    if (!sd_story::request(name)) {
+                        // Nothing matched: read a random story rather than disappoint
+                        stories::start(name, reading, true);
+                        return reading;
+                    }
+                    return std::string("Recorded audio story queued: it starts when you finish talking.");
                 });
 
     mcp.AddTool("self.story.stop", "Stop the story or song that is playing.", PropertyList(),

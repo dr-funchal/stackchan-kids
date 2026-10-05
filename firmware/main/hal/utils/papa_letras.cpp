@@ -154,37 +154,101 @@ static void play_sound(const uint8_t* data, size_t size)
     Application::GetInstance().PlaySound(std::string_view(reinterpret_cast<const char*>(data), size));
 }
 
-// End of game: rainbow body LEDs and a happy dance
-class PartyModifier : public Modifier {
+// Turn clock: the 11 body LEDs light up when it's a child's turn and go out one by one over 20 s, green ->
+// yellow -> red. At zero they blink red and the AI "hears" that time is up. A new turn or an answer stops it:
+// each clock carries the generation it was started with and destroys itself when that changes
+static constexpr uint32_t kTurnMs = 20 * 1000;
+static std::atomic<uint32_t> _clock_generation{0};
+// Time-ups in a row with no answer: after 2 the clock stops talking, so a room the kids left goes quiet
+static std::atomic<int> _timeouts_in_a_row{0};
+static constexpr int kMaxTimeoutsInARow = 2;
+
+class TurnClockModifier : public Modifier {
 public:
+    explicit TurnClockModifier(uint32_t generation) : _generation(generation) {}
+
     void _update(Modifiable&) override
     {
         uint32_t now = GetHAL().millis();
         if (_start == 0) {
             _start = now;
         }
-        if (now - _start > 4500) {
-            for (uint8_t i = 1; i < 12; i++) {
-                GetHAL().setRgbColor(i, 0, 0, 0);
-            }
-            GetHAL().refreshRgb();
+        if (_clock_generation.load() != _generation || !_active.load()) {
+            set_all(0, 0, 0);
             requestDestroy();
             return;
         }
-        uint32_t phase = (now - _start) / 60;
+
+        uint32_t elapsed = now - _start;
+        if (elapsed < kTurnMs) {
+            int lit = 11 - (int)(elapsed * 11 / kTurnMs);  // 11 .. 1
+            if (lit != _last_lit) {
+                _last_lit = lit;
+                uint8_t r = lit > 5 ? 0 : 40, g = lit > 2 ? 30 : 0;  // green, yellow, red
+                for (uint8_t i = 1; i < 12; i++) {
+                    bool on = i <= lit;
+                    GetHAL().setRgbColor(i, on ? r : 0, on ? g : 0, 0);
+                }
+                GetHAL().refreshRgb();
+            }
+            return;
+        }
+
+        // Time is up: blink red three times, then tell the AI
+        int blink = (elapsed - kTurnMs) / 250;
+        if (blink < 6) {
+            if (blink != _last_blink) {
+                _last_blink = blink;
+                set_all(blink % 2 ? 0 : 50, 0, 0);
+            }
+            return;
+        }
+        set_all(0, 0, 0);
+        if (_timeouts_in_a_row.fetch_add(1) < kMaxTimeoutsInARow) {
+            ESP_LOGI(TAG, "Turn time is up");
+            Application::GetInstance().SendUserText("O tempo acabou!");
+        }
+        requestDestroy();
+    }
+
+private:
+    static void set_all(uint8_t r, uint8_t g, uint8_t b)
+    {
         for (uint8_t i = 1; i < 12; i++) {
-            // Six-color wheel, rotating
-            static const uint8_t wheel[6][3] = {{40, 0, 0}, {40, 20, 0}, {30, 30, 0},
-                                                {0, 40, 0}, {0, 0, 40}, {25, 0, 35}};
-            const auto& c = wheel[(i + phase) % 6];
-            GetHAL().setRgbColor(i, c[0], c[1], c[2]);
+            GetHAL().setRgbColor(i, r, g, b);
         }
         GetHAL().refreshRgb();
     }
 
-private:
+    uint32_t _generation;
     uint32_t _start = 0;
+    int _last_lit   = -1;
+    int _last_blink = -1;
 };
+
+void papa_letras::onListening(bool listening)
+{
+    uint32_t generation = ++_clock_generation;  // Any status change ends the running clock
+    if (listening && _active.load()) {
+        GetStackChan().addModifier(std::make_unique<TurnClockModifier>(generation));  // Caller holds the lock
+    }
+}
+
+void papa_letras::onHeadTap()
+{
+    if (_active.load()) {
+        ESP_LOGI(TAG, "Head tap: hint");
+        Application::GetInstance().SendUserText("Me da uma dica!");
+    }
+}
+
+void papa_letras::onHeadPet()
+{
+    if (_active.load()) {
+        ESP_LOGI(TAG, "Head pet: skip");
+        Application::GetInstance().SendUserText("Pula essa letra!");
+    }
+}
 
 static void celebrate()
 {
@@ -322,8 +386,8 @@ static const char* kRules =
     "self.game.resume return. The letter on the robot screen only changes through these tools. (3) NEVER say a "
     "word that answers the current letter during the first 2 tries: no examples, no lists. Hints only describe "
     "(sound, color, size, what it does, where it lives). (4) A single short word like \"tchau\", \"para\" or an "
-    "unclear phrase does NOT end the game: ask \"vocês querem parar o jogo?\" and only call self.game.end after "
-    "a clear yes. HOW TO PLAY: say the letter and its sound, call the child by name, they say a word of the theme "
+    "unclear phrase does NOT end the game: ask \"vocês querem parar o jogo?\" and after a clear yes you MUST call "
+    "self.game.end (saying the game stopped is not enough: the turn clock keeps running until you call it). HOW TO PLAY: say the letter and its sound, call the child by name, they say a word of the theme "
     "starting with the letter. (5) UNDERSTAND CHILD SPEECH BY SOUND: these are 4-6 year olds and the transcript "
     "often has their pronunciation, not the real word. Before judging, find the theme word that SOUNDS closest. "
     "Typical patterns in Portuguese: R becomes L (jacale=jacare, laposa=raposa), R dropped in clusters "
@@ -331,7 +395,10 @@ static const char* kRules =
     "coeio=coelho), swapped or repeated syllables (cacaco=macaco, bolboleta=borboleta), cut endings "
     "(elefan=elefante), plus speech-recognition slips (a beija=abelha). If it sounds like a valid word, ACCEPT it: "
     "pass the CORRECT word to self.game.answer and repeat it right, warmly (\"Isso! Jacare!\"), never point out "
-    "the mistake. If you are really unsure, ask \"voce disse jacare?\". The first SOUND matters. If wrong, encourage and give a tiny hint. If the child asks for help call self.game.hint; if nobody "
+    "the mistake. If you are really unsure, ask \"voce disse jacare?\". The first SOUND matters. (6) The robot also sends "
+    "these on its own: \"O tempo acabou!\" (the 20 s turn clock ran out: encourage, give a hint via self.game.hint, "
+    "or call self.game.skip if it was already the 2nd try), \"Me da uma dica!\" (head tap: call self.game.hint) and "
+    "\"Pula essa letra!\" (head petting: call self.game.skip). If wrong, encourage and give a tiny hint. If the child asks for help call self.game.hint; if nobody "
     "knows after 2 tries call self.game.skip. Short, joyful sentences; cheer the panda eating the letter "
     "(nham nham!).";
 
@@ -353,6 +420,7 @@ void papa_letras::registerMcpTools()
                     }
                     _game.active = true;
                     _active.store(true);
+                    _timeouts_in_a_row.store(0);
                     show_letter(0);
                     ESP_LOGI(TAG, "Start: theme %s, %u players", _game.theme.c_str(), (unsigned)_game.players.size());
                     sd_diary::log("papa-letras", ("inicio, tema " + _game.theme).c_str());
@@ -369,6 +437,7 @@ void papa_letras::registerMcpTools()
                     if (!_game.active) {
                         return std::string("No game running. Use self.game.start.");
                     }
+                    _timeouts_in_a_row.store(0);
                     std::string word = properties["word"].value<std::string>();
                     bool valid       = properties["valid"].value<bool>();
                     std::string key  = sd_paths::sanitize(word);
@@ -449,6 +518,7 @@ void papa_letras::registerMcpTools()
                     }
                     _game.active = true;
                     _active.store(true);
+                    _timeouts_in_a_row.store(0);
                     show_letter(_game.letter);
                     return std::string(kRules) + " Continuing! Theme: " + _game.theme + ". Stars: " + scoreboard() +
                            ". " + turn_text();

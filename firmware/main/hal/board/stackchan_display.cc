@@ -19,6 +19,8 @@
 #include <assets/lang_config.h>
 #include <hal/hal.h>
 #include <hal/utils/sd_features.h>
+#include <hal/utils/papa_letras.h>
+#include <hal/utils/panda_mandou.h>
 #include <application.h>
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 
@@ -33,10 +35,33 @@ static constexpr uint32_t kNapCheckMs     = 250;
 static constexpr uint8_t kNapBrightness   = 10;
 static std::atomic<uint32_t> _last_activity_ms{0};
 static std::atomic<bool> _nap_requested{false};
+static std::atomic<bool> _power_button_pressed{false};
+static bool _button_nap_pending = false;  // LVGL task only
+
+void power_button_short_press()
+{
+    _power_button_pressed.store(true);
+}
 
 static void poke_activity()
 {
     _last_activity_ms.store(GetHAL().millis());
+}
+
+// After a conversation ends (goodbye), touches don't start a new one for a while: kids keep handling the robot
+// after "tchau", and every brief touch was waking it up again. The wake word always works
+static constexpr uint32_t kTouchStartCooldownMs = 30 * 1000;
+static std::atomic<uint32_t> _conversation_ended_ms{0};
+
+static bool touch_start_allowed(const char* source)
+{
+    uint32_t ended = _conversation_ended_ms.load();
+    if (ended != 0 && GetHAL().millis() - ended < kTouchStartCooldownMs) {
+        ESP_LOGI(TAG, "Ignoring %s: conversation just ended", source);
+        return false;
+    }
+    ESP_LOGI(TAG, "Conversation started by %s", source);
+    return true;
 }
 
 // "You can talk now": a thin green frame around the screen while listening. Top layer, so it sits over any face;
@@ -326,6 +351,9 @@ void StackChanAvatarDisplay::SetupUI()
     }
     panel->onClick().connect([]() {
         poke_activity();
+        if (panda_mandou::onScreenTap()) {
+            return;  // "Touch my face" command in the game
+        }
 
         static uint32_t last_toggle_tick = 0;
         const uint32_t now               = GetHAL().millis();
@@ -334,6 +362,9 @@ void StackChanAvatarDisplay::SetupUI()
         }
 
         if (hal_bridge::is_xiaozhi_ready()) {
+            if (hal_bridge::is_xiaozhi_idle() && !touch_start_allowed("screen tap")) {
+                return;
+            }
             last_toggle_tick = now;
             hal_bridge::toggle_xiaozhi_chat_state();
         }
@@ -364,8 +395,18 @@ void StackChanAvatarDisplay::SetupUI()
         } else if (gesture == HeadPetGesture::Release) {
             bool is_tap = !swiped && press_tick != 0 && now - press_tick < 700;
             press_tick  = 0;
+            // During Papa-Letras: tap = hint, petting = skip
+            if (papa_letras::isActive() && now - last_chat_tick > 2000) {
+                last_chat_tick = now;
+                if (is_tap) {
+                    papa_letras::onHeadTap();
+                } else if (swiped) {
+                    papa_letras::onHeadPet();
+                }
+                return;
+            }
             if (is_tap && hal_bridge::is_xiaozhi_ready() && hal_bridge::is_xiaozhi_idle() &&
-                now - last_chat_tick > 2000) {
+                now - last_chat_tick > 2000 && touch_start_allowed("head tap")) {
                 last_chat_tick = now;
                 hal_bridge::toggle_xiaozhi_chat_state();
             }
@@ -650,14 +691,20 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         setSceneryFrozen(false);
     }
     set_listening_frame(is_listening_status);
+    papa_letras::onListening(is_listening_status);
     if (is_listening_status) {
         sd_recorder::onListening();
         // Green body LEDs while leaning in = "you can talk now". No sound here: playing a sound right as listening
         // starts (mic, AEC and wake word being switched on) corrupted the heap even when deferred (see CLAUDE.md)
-        play_gesture(GestureModifier::Kind::Listen);  // Lean in: "I'm listening"
+        if (!papa_letras::isActive() && !panda_mandou::isActive()) {
+            play_gesture(GestureModifier::Kind::Listen);  // Lean in: "I'm listening" (the game's turn clock owns the LEDs)
+        }
     }
     if (is_standby_status) {
         sd_web::start();
+        if (!_is_xiaozhi_idle && _is_xiaozhi_ready) {
+            _conversation_ended_ms.store(GetHAL().millis());  // A conversation just ended (goodbye or timeout)
+        }
     }
     sd_story::onDeviceStatus(is_standby_status, is_listening_status);
 
@@ -774,6 +821,36 @@ void StackChanAvatarDisplay::NapCheck()
 {
     auto& stackchan = GetStackChan();
     if (!stackchan.hasAvatar()) {
+        return;
+    }
+
+    // Side button: wake up if napping; otherwise end any conversation and nap as soon as it is idle
+    if (_power_button_pressed.exchange(false)) {
+        if (is_napping_) {
+            ESP_LOGI(TAG, "Power button: wake up");
+            poke_activity();
+        } else {
+            ESP_LOGI(TAG, "Power button: go to sleep");
+            _button_nap_pending = true;
+            sd_story::stop();
+            Application::GetInstance().Schedule([]() {
+                auto& app = Application::GetInstance();
+                if (app.GetDeviceState() == kDeviceStateSpeaking) {
+                    app.AbortSpeaking(kAbortReasonNone);
+                }
+                // After the abort settles, close the conversation if it went back to listening
+                app.Schedule([]() {
+                    auto& app = Application::GetInstance();
+                    if (app.GetDeviceState() == kDeviceStateListening) {
+                        app.ToggleChatState();
+                    }
+                });
+            });
+        }
+    }
+    if (_button_nap_pending && !is_napping_ && _is_xiaozhi_idle) {
+        _button_nap_pending = false;
+        EnterNap();
         return;
     }
 

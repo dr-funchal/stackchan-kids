@@ -95,6 +95,16 @@ public:
     } xpowers_axp2101_chg_curr_t;
 
     // Power Init
+    // True once per short press of the side power button (clears the IRQ flag)
+    bool TakeShortPress()
+    {
+        if (ReadReg(0x49) & 0x08) {
+            WriteReg(0x49, 0x08);  // Write 1 to clear
+            return true;
+        }
+        return false;
+    }
+
     Pmic(i2c_master_bus_handle_t i2c_bus, uint8_t addr) : Axp2101(i2c_bus, addr)
     {
         uint8_t data = ReadReg(0x90);
@@ -108,6 +118,9 @@ public:
         WriteReg(0x94, 33 - 5);
         WriteReg(0x95, 33 - 5);
         WriteReg(0x27, 0x00);
+        // Power key short-press IRQ (IRQ enable 2 = 0x41, bit 3); clear any stale status in 0x49
+        WriteReg(0x41, ReadReg(0x41) | 0x08);
+        WriteReg(0x49, 0x08);
 
         auto ret = setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_700MA);
         if (!ret) {
@@ -348,6 +361,21 @@ private:
         last_power_save_enabled_ = should_enable_power_save;
     }
 
+    // Side power button short press (AXP2101 IRQ status 2 = 0x49, bit 3). Holding it powers off in hardware
+    void PollPowerButton()
+    {
+        static int64_t last_check_ms = 0;
+        const int64_t now_ms         = esp_timer_get_time() / 1000;
+        if (now_ms - last_check_ms < 100) {
+            return;
+        }
+        last_check_ms = now_ms;
+        if (pmic_->TakeShortPress()) {
+            ESP_LOGI(TAG, "Power button short press");
+            power_button_short_press();
+        }
+    }
+
     void PollPowerSaveState()
     {
         const int64_t now_ms = esp_timer_get_time() / 1000;
@@ -466,6 +494,7 @@ private:
                     M5StackCoreS3Board* board = (M5StackCoreS3Board*)arg;
                     board->PollTouchpad();
                     board->PollPowerSaveState();
+                    board->PollPowerButton();
                 },
             .arg                   = this,
             .dispatch_method       = ESP_TIMER_TASK,

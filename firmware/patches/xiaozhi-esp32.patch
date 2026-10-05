@@ -1,5 +1,5 @@
 diff --git a/main/application.cc b/main/application.cc
-index d69d43d..3b6f07e 100644
+index d69d43d..df635fc 100644
 --- a/main/application.cc
 +++ b/main/application.cc
 @@ -610,33 +610,36 @@ void Application::InitializeProtocol() {
@@ -66,6 +66,34 @@ index d69d43d..3b6f07e 100644
  }
  
  void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {
+@@ -1016,6 +1019,14 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
+     }
+ }
+ 
++void Application::SendUserText(const std::string& text) {
++    Schedule([this, text]() {
++        if (protocol_ && protocol_->IsAudioChannelOpened()) {
++            protocol_->SendWakeWordDetected(text);
++        }
++    });
++}
++
+ void Application::WakeWordInvoke(const std::string& wake_word) {
+     if (!protocol_) {
+         return;
+diff --git a/main/application.h b/main/application.h
+index 7ca7af4..38623fb 100644
+--- a/main/application.h
++++ b/main/application.h
+@@ -105,6 +105,8 @@ public:
+ 
+     void Reboot();
+     void WakeWordInvoke(const std::string& wake_word);
++    // StackChan: send text to the server as if the user had said it (only during an open conversation)
++    void SendUserText(const std::string& text);
+     bool UpgradeFirmware(const std::string& url, const std::string& version = "");
+     bool CanEnterSleepMode();
+     void SendMcpMessage(const std::string& payload);
 diff --git a/main/assets.cc b/main/assets.cc
 index ad61944..6b84daf 100644
 --- a/main/assets.cc

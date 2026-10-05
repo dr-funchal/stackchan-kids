@@ -10,6 +10,10 @@
 #include <esp_timer.h>
 #include <memory>
 
+// Side power button, short press: put the robot to sleep (nap), or wake it up. Holding it still powers off
+// (that is done by the PMIC hardware). Called from the board's timer task
+void power_button_short_press();
+
 class StackChanAvatarDisplay : public LvglDisplay {
 private:
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
