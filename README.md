@@ -1,3 +1,15 @@
+# stackchan-kids
+
+Kid-friendly firmware for the M5Stack StackChan robot: voice games, stories from SD card, a Halloween panda and more. Built on the official ESP-IDF firmware.
+
+A community fork of the official M5Stack StackChan firmware (CoreS3, ESP-IDF), focused on children: voice-driven games like Papa-Letras and Panda Mandou, read-aloud stories from the SD card, a Halloween panda avatar, IR remote control and better recognition of kids' speech. Contributions welcome!
+
+> **Disclaimer:** this is an unofficial fork of [m5stack/StackChan](https://github.com/m5stack/StackChan), not affiliated with or endorsed by M5Stack. The upstream repository does not declare a license; the original code belongs to its authors and is **not** relicensed here. The [MIT license](LICENSE) in this repository applies **only to the modifications made in this fork**. Third-party components keep their own licenses.
+
+The original upstream README follows.
+
+---
+
 # StackChan Open-Source
 
 <img src="https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/1205/K151_stack_chan_main_pictures_01.webp" width="60%">
