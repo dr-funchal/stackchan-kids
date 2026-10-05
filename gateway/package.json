@@ -1,0 +1,26 @@
+{
+  "name": "stackchan-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ferramentas externas (MCP) para o Stack-Chan via ponto de acesso MCP do xiaozhi.me",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.ts",
+    "check": "tsc -p tsconfig.json",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ajv": "^8.20.0",
+    "ws": "^8.22.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "@types/ws": "^8.18.2",
+    "typescript": "^5.9.3"
+  }
+}

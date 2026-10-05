@@ -1,0 +1,30 @@
+name: stackchan-gateway
+
+services:
+  gateway:
+    build: .
+    image: stackchan-gateway:${GATEWAY_IMAGE_TAG:-latest}
+    container_name: stackchan-gateway
+    restart: unless-stopped
+    env_file: .env
+    # MCP is outbound-only (wss://api.xiaozhi.me). HTTP is published on localhost only, for the
+    # nginx site m5.pulpfy.com (/etc/nginx/sites-available/m5.pulpfy.com on the VPS).
+    ports:
+      - "127.0.0.1:3150:8080"
+    volumes:
+      - ./data:/app/data:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=8m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Shares the VPS with other production services: keep it small.
+    mem_limit: 192m
+    cpus: 0.5
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "3"
