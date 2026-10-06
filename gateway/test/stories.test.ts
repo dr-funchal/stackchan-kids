@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { silentLogger } from '../src/logger.ts';
-import { paginate, storiesModule } from '../src/modules/stories.ts';
+import { findStory, loadStories, paginate, storiesModule } from '../src/modules/stories.ts';
 import { ToolRegistry } from '../src/registry/registry.ts';
 
 let dataDir: string;
@@ -32,40 +32,44 @@ test('paginate cuts at sentence ends and loses no text', () => {
   assert.equal(pages.join(' '), source);
 });
 
-test('list matches a theme ignoring case and accents', async () => {
-  const out = await text('story_list', { theme: 'DINOSSAURO' });
-  assert.match(out, /id: dino \|/);
-  assert.doesNotMatch(out, /pao-de-queijo/);
-  assert.match(await text('story_list', { theme: 'pao' }), /id: pao-de-queijo/);
+test('findStory matches id, title words and themes, ignoring accents and filler words', async () => {
+  const all = await loadStories(join(dataDir, 'historias'));
+  assert.equal(findStory(all, 'dino')?.id, 'dino');
+  assert.equal(findStory(all, 'conta a história do DINOSSAURO sonolento')?.id, 'dino');
+  assert.equal(findStory(all, 'pao de queijo')?.id, 'pao-de-queijo');
+  assert.equal(findStory(all, 'história'), undefined);
+  assert.equal(findStory(all, 'submarino'), undefined);
 });
 
-test('list falls back to everything when no theme matches', async () => {
-  const out = await text('story_list', { theme: 'submarino' });
-  assert.match(out, /No story matches/);
-  assert.match(out, /id: dino/);
+test('search matches a theme; no match falls back to the full list', async () => {
+  const out = await text('library_search', { query: 'dinossauro' });
+  assert.match(out, /"O Dinossauro Sonolento" \(id: dino,/);
+  assert.doesNotMatch(out, /Pão de Queijo/);
+  const none = await text('library_search', { query: 'submarino' });
+  assert.match(none, /No story matches/);
+  assert.match(none, /Dinossauro/);
 });
 
-test('read pages in order, last page says FIM', async () => {
-  const first = await text('story_read_page', { story_id: 'dino' });
+test('read by title in one call, pages in order, last page says FIM', async () => {
+  const first = await text('library_read_page', { story: 'dinossauro sonolento' });
   assert.match(first, /PAGE 1 OF (\d+)/);
   assert.match(first, /READ-ALOUD RULES/);
   const total = Number(/OF (\d+)/.exec(first)![1]);
   assert.ok(total >= 2);
-  assert.match(first, new RegExp(`page 2, without waiting`));
-  assert.match(await text('story_read_page', { story_id: 'dino', page: total }), /FIM/);
-  assert.match(await text('story_read_page', { story_id: 'dino', page: total + 1 }), /already over/);
+  assert.match(first, /call library_read_page with story "dino" and page 2/);
+  assert.match(await text('library_read_page', { story: 'dino', page: total }), /FIM/);
+  assert.match(await text('library_read_page', { story: 'dino', page: total + 1 }), /already over/);
 });
 
-test('story_id cannot escape the library directory', async () => {
-  for (const id of ['../../etc/passwd', '..', 'dino/../../x', 'a b']) {
-    const res = await reg.call('story_read_page', { story_id: id });
-    assert.equal(res.isError, true);
+test('unknown stories and path-like input never escape the library', async () => {
+  for (const story of ['../../etc/passwd', '..', 'submarino amarelo']) {
+    assert.match(await text('library_read_page', { story }), /not in the online library/);
   }
-  assert.match(await text('story_read_page', { story_id: 'nao-existe' }), /no story with that id/);
+  assert.equal((await reg.call('library_read_page', { story: '' })).isError, true);
 });
 
 test('empty library tells the model to improvise', async () => {
   const empty = new ToolRegistry({ log: silentLogger, defaultTimeoutMs: 1000, allowRestricted: false });
   empty.register(storiesModule({ dataDir: join(dataDir, 'inexistente') }));
-  assert.match((await empty.call('story_list', {})).content[0]!.text, /library is empty/);
+  assert.match((await empty.call('library_search', {})).content[0]!.text, /library is empty/);
 });

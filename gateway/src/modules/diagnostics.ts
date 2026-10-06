@@ -31,6 +31,7 @@ export function diagnosticsModule(opts: { timezone: string }): GatewayModule {
           'or asks to test the gateway. Then say the word exactly as returned.',
         inputSchema: { ...EMPTY_ARGS },
         maxCallsPerMinute: 10,
+        summarize: (_args, result) => `Palavra secreta: ${/is: ([^.]+)\./.exec(result ?? '')?.[1] ?? '?'}`,
         async handler(_args, { log }) {
           const word = `${WORDS[randomInt(WORDS.length)]}-${randomInt(10, 100)}`;
           log.info('secret word issued', { word });
@@ -43,6 +44,7 @@ export function diagnosticsModule(opts: { timezone: string }): GatewayModule {
           'Returns the current date and time from the Stack-Chan gateway. Call this when the user asks what time it is ' +
           'or what day it is today.',
         inputSchema: { ...EMPTY_ARGS },
+        summarize: () => 'Perguntou a hora',
         async handler() {
           const text = new Intl.DateTimeFormat('pt-BR', {
             dateStyle: 'full',

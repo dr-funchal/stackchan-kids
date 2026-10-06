@@ -12,6 +12,16 @@ export interface Config {
   allowRestricted: boolean;
   toolTimeoutMs: number;
   httpPort: number;
+  /** Public origin of the panel, e.g. https://m5.pulpfy.com (OAuth redirect, CSRF origin check, audio links). */
+  publicUrl: string;
+  /** Extra origins allowed to call the API (local development only). */
+  devOrigins: string[];
+  adminEmail: string;
+  /** scrypt:N:r:p:salt:hash (see scripts/hash-password.ts). The plain password is never stored. */
+  adminPasswordHash: string;
+  /** 32 random bytes in base64: encrypts Spotify tokens and API keys at rest. */
+  secretsKey: string | undefined;
+  maxUploadMb: number;
   reconnect: { initialMs: number; maxMs: number };
   statusFile: string;
 }
@@ -54,7 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     endpoint: endpoint ? checkEndpoint(endpoint) : undefined,
     enabled: bool(env.GATEWAY_ENABLED, true, 'GATEWAY_ENABLED'),
-    modules: (env.MODULES ?? 'diagnostics,stories')
+    modules: (env.MODULES ?? 'diagnostics,stories,music,spotify,weather')
       .split(',')
       .map((m) => m.trim())
       .filter(Boolean),
@@ -64,6 +74,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowRestricted: bool(env.ALLOW_RESTRICTED_TOOLS, false, 'ALLOW_RESTRICTED_TOOLS'),
     toolTimeoutMs: int(env.TOOL_TIMEOUT_MS, 8000, 'TOOL_TIMEOUT_MS'),
     httpPort: int(env.HTTP_PORT, 8080, 'HTTP_PORT'),
+    publicUrl: new URL(env.PUBLIC_URL || 'https://m5.pulpfy.com').origin,
+    devOrigins: (env.DEV_ORIGINS ?? '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter(Boolean),
+    adminEmail: (env.ADMIN_EMAIL ?? '').trim().toLowerCase(),
+    adminPasswordHash: (env.ADMIN_PASSWORD_HASH ?? '').trim(),
+    secretsKey: env.SECRETS_KEY?.trim() || undefined,
+    maxUploadMb: int(env.MAX_UPLOAD_MB, 60, 'MAX_UPLOAD_MB'),
     reconnect: {
       initialMs: int(env.RECONNECT_INITIAL_MS, 1000, 'RECONNECT_INITIAL_MS'),
       maxMs: int(env.RECONNECT_MAX_MS, 60000, 'RECONNECT_MAX_MS'),

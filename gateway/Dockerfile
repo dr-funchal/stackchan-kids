@@ -1,5 +1,8 @@
 FROM node:24-alpine
 
+# ffmpeg decodes uploads; opusenc writes the exact Opus shape the robot plays
+RUN apk add --no-cache ffmpeg opus-tools
+
 ENV NODE_ENV=production
 WORKDIR /app
 
@@ -8,7 +11,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY src ./src
 
-# Story library lives in a bind-mounted volume (see docker-compose.yml); this is only the fallback.
+# Seed stories; the real library lives in the bind-mounted data volume (see docker-compose.yml)
 COPY data ./data
 
 USER node

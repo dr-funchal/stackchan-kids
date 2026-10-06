@@ -5,6 +5,7 @@
 #include "sd_card.h"
 #include "ir_remote.h"
 #include "stories.h"
+#include "gateway_audio.h"
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 #include <application.h>
 #include <assets/lang_config.h>
@@ -168,6 +169,8 @@ void sd_features_register_mcp_tools()
 
     mcp.AddTool("self.ir.list", "List the infrared remote buttons you have learned.", PropertyList(),
                 [](const PropertyList&) -> ReturnValue { return json_list(ir_remote::list()); });
+
+    gateway_audio::registerMcpTools();
 
     ESP_LOGI(TAG, "SD card tools registered");
 }

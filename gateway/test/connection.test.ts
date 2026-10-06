@@ -4,10 +4,11 @@ import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
-import type { Config } from '../src/config.ts';
+import { loadConfig } from '../src/config.ts';
 import { GatewayConnection } from '../src/connection.ts';
 import { createLogger } from '../src/logger.ts';
-import { buildModules } from '../src/modules/index.ts';
+import { diagnosticsModule } from '../src/modules/diagnostics.ts';
+import { storiesModule } from '../src/modules/stories.ts';
 import { ToolRegistry } from '../src/registry/registry.ts';
 import { StatusReporter } from '../src/status.ts';
 
@@ -39,21 +40,18 @@ test('speaks MCP to the cloud endpoint, reconnects after a drop, and never logs 
   const lines: string[] = [];
   const log = createLogger('debug', (l) => lines.push(l));
 
-  const cfg: Config = {
-    endpoint: `ws://127.0.0.1:${port}/mcp/?token=${TOKEN}`,
-    enabled: true,
-    modules: ['diagnostics', 'stories'],
-    dataDir: '/nonexistent',
-    timezone: 'America/Sao_Paulo',
-    logLevel: 'debug',
-    allowRestricted: false,
-    toolTimeoutMs: 1000,
-    httpPort: 8080,
-    reconnect: { initialMs: 50, maxMs: 200 },
-    statusFile: `/tmp/gw-test-status-${process.pid}.json`,
-  };
+  const cfg = loadConfig({
+    MCP_ENDPOINT: `ws://127.0.0.1:${port}/mcp/?token=${TOKEN}`,
+    DATA_DIR: '/nonexistent',
+    LOG_LEVEL: 'debug',
+    TOOL_TIMEOUT_MS: '1000',
+    RECONNECT_INITIAL_MS: '50',
+    RECONNECT_MAX_MS: '200',
+    STATUS_FILE: `/tmp/gw-test-status-${process.pid}.json`,
+  });
   const registry = new ToolRegistry({ log, defaultTimeoutMs: 1000, allowRestricted: false });
-  for (const m of buildModules(cfg)) registry.register(m);
+  registry.register(diagnosticsModule({ timezone: cfg.timezone }));
+  registry.register(storiesModule({ dataDir: cfg.dataDir }));
   const status = new StatusReporter(cfg.statusFile, log);
   const gateway = new GatewayConnection(cfg, registry, log, status);
 
@@ -79,12 +77,12 @@ test('speaks MCP to the cloud endpoint, reconnects after a drop, and never logs 
 
           const list = await cloud.request('tools/list');
           const names = list.result.tools.map((t: { name: string }) => t.name);
-          assert.deepEqual(names.sort(), ['gateway_get_time', 'gateway_secret_word', 'story_list', 'story_read_page']);
+          assert.deepEqual(names.sort(), ['gateway_get_time', 'gateway_secret_word', 'library_read_page', 'library_search']);
 
           const call = await cloud.request('tools/call', { name: 'gateway_secret_word', arguments: {} });
           assert.match(call.result.content[0].text, /secret word is: [a-z]+-\d\d/);
 
-          const bad = await cloud.request('tools/call', { name: 'story_read_page', arguments: { story_id: '../x' } });
+          const bad = await cloud.request('tools/call', { name: 'library_read_page', arguments: { story: 'x'.repeat(200) } });
           assert.equal(bad.result.isError, true);
 
           ws.terminate(); // the cloud drops us: the gateway must come back on its own

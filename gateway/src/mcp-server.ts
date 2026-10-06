@@ -7,6 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import type { WebSocket } from 'ws';
+import type { Logger } from './logger.ts';
 import type { ToolRegistry } from './registry/registry.ts';
 
 export const GATEWAY_VERSION = '0.1.0';
@@ -45,9 +46,15 @@ export class WebSocketTransport implements Transport {
   }
 }
 
-export function createMcpServer(registry: ToolRegistry): Server {
+export function createMcpServer(registry: ToolRegistry, log: Logger, onListed?: (count: number) => void): Server {
   const server = new Server({ name: 'stackchan-gateway', version: GATEWAY_VERSION }, { capabilities: { tools: {} } });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: registry.list() }));
+  // Logged so we can tell when the cloud picked up new tool descriptions.
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = registry.list();
+    log.info('tools listed', { count: tools.length });
+    onListed?.(tools.length);
+    return { tools };
+  });
   server.setRequestHandler(CallToolRequestSchema, async (request) =>
     registry.call(request.params.name, request.params.arguments),
   );

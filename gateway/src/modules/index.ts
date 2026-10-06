@@ -1,21 +1,63 @@
-import type { Config } from '../config.ts';
 import type { GatewayModule } from '../registry/registry.ts';
+import type { MusicLibrary } from '../services/music-library.ts';
+import type { SpotifyService } from '../services/spotify.ts';
+import type { WeatherService } from '../services/weather.ts';
+import type { SettingsFile } from '../settings.ts';
 import { diagnosticsModule } from './diagnostics.ts';
+import { musicModule } from './music.ts';
+import { spotifyModule } from './spotify.ts';
 import { storiesModule } from './stories.ts';
+import { weatherModule } from './weather.ts';
+
+export interface ModuleContext {
+  dataDir: string;
+  timezone: string;
+  settings: SettingsFile;
+  music: MusicLibrary;
+  spotify: SpotifyService;
+  weather: WeatherService;
+}
+
+export interface ModuleInfo {
+  name: string;
+  title: string;
+  description: string;
+  build(ctx: ModuleContext): GatewayModule;
+}
 
 /**
- * Module catalog. To add a service (weather, home automation...), create src/modules/<name>.ts that returns a
- * GatewayModule, add one line here, and list it in MODULES. The registry and the connection never change.
+ * Module catalog. To add a service: create src/modules/<name>.ts returning a GatewayModule and add one entry here.
+ * The panel lists it, turns it on and off, and the robot sees its tools; nothing else changes.
  */
-const FACTORIES: Record<string, (cfg: Config) => GatewayModule> = {
-  diagnostics: (cfg) => diagnosticsModule({ timezone: cfg.timezone }),
-  stories: (cfg) => storiesModule({ dataDir: cfg.dataDir }),
-};
-
-export function buildModules(cfg: Config): GatewayModule[] {
-  return cfg.modules.map((name) => {
-    const factory = FACTORIES[name];
-    if (!factory) throw new Error(`unknown module "${name}" (available: ${Object.keys(FACTORIES).join(', ')})`);
-    return factory(cfg);
-  });
-}
+export const MODULES: ModuleInfo[] = [
+  {
+    name: 'diagnostics',
+    title: 'Diagnóstico',
+    description: 'Palavra secreta (teste de ponta a ponta) e hora.',
+    build: (ctx) => diagnosticsModule({ timezone: ctx.timezone }),
+  },
+  {
+    name: 'stories',
+    title: 'Histórias',
+    description: 'Biblioteca online de histórias, lidas página por página.',
+    build: (ctx) => storiesModule({ dataDir: ctx.dataDir }),
+  },
+  {
+    name: 'music',
+    title: 'Música',
+    description: '"Toca X": no alto-falante do robô (biblioteca própria) ou no Spotify.',
+    build: (ctx) => musicModule({ library: ctx.music, spotify: ctx.spotify, settings: ctx.settings }),
+  },
+  {
+    name: 'spotify',
+    title: 'Controle do Spotify',
+    description: 'Pausar, pular, volume, aparelhos e "o que está tocando".',
+    build: (ctx) => spotifyModule(ctx.spotify),
+  },
+  {
+    name: 'weather',
+    title: 'Clima',
+    description: 'Tempo agora e previsão para a cidade de casa.',
+    build: (ctx) => weatherModule(ctx.weather),
+  },
+];

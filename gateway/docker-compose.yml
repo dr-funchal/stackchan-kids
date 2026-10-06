@@ -7,22 +7,25 @@ services:
     container_name: stackchan-gateway
     restart: unless-stopped
     env_file: .env
+    # A uid with no account on the host (uid 1000 there belongs to another project's user)
+    user: "10001:10001"
     # MCP is outbound-only (wss://api.xiaozhi.me). HTTP is published on localhost only, for the
     # nginx site m5.pulpfy.com (/etc/nginx/sites-available/m5.pulpfy.com on the VPS).
     ports:
       - "127.0.0.1:3150:8080"
+    # Stories, music, settings, encrypted secrets, sessions and activity. Owned by uid 10001, mode 700.
     volumes:
-      - ./data:/app/data:ro
+      - ./data:/app/data
     read_only: true
     tmpfs:
-      - /tmp:size=8m
+      - /tmp:size=16m
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    # Shares the VPS with other production services: keep it small.
-    mem_limit: 192m
-    cpus: 0.5
-    pids_limit: 64
+    # Shares the VPS with other production services: keep it small (ffmpeg needs some room while converting).
+    mem_limit: 384m
+    cpus: 0.75
+    pids_limit: 128
     logging:
       driver: json-file
       options:

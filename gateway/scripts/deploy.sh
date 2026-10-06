@@ -12,11 +12,13 @@ deploy)
   npm run check
   npm test
   ssh "$HOST" "mkdir -p '$DIR/data/historias'"
-  # .env and the story library are never overwritten or deleted by a deploy.
-  rsync -az --delete --exclude /node_modules/ --exclude /.env --exclude /data/ ./ "$HOST:$DIR/"
-  rsync -az data/ "$HOST:$DIR/data/"
+  # .env and the data folder (stories, music, settings, secrets) are never overwritten or deleted by a deploy:
+  # files from the repo are only added when missing.
+  rsync -az --delete --exclude /node_modules/ --exclude /.env --exclude /data/ --exclude /backups/ ./ "$HOST:$DIR/"
+  rsync -az --ignore-existing data/ "$HOST:$DIR/data/"
   ssh "$HOST" "set -e; cd '$DIR'
     [ -f .env ] || { cp .env.example .env; chmod 600 .env; }
+    chown -R 10001:10001 data && chmod 700 data
     if docker image inspect stackchan-gateway:latest >/dev/null 2>&1; then
       docker tag stackchan-gateway:latest stackchan-gateway:previous
     fi
