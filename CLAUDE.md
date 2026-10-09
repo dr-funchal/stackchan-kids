@@ -2,11 +2,31 @@
 
 Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/` (ESP-IDF, C++).
 `app/` (Flutter), `server/` (Go) e `remote/` (controle ESP-NOW) são projetos separados.
+`gateway/` (Node/TypeScript, nosso) dá ferramentas extras à IA via ponto de acesso MCP do xiaozhi.me; ver seção abaixo.
+
+## Gateway (`gateway/`)
+
+- Roda em Docker na VPS `orbita-vps` (ssh já configurado), pasta `/var/www/stackchan-gateway`. Detalhes em `gateway/README.md`.
+- Conexão só de saída para `wss://api.xiaozhi.me/mcp/?token=…`; VPS fora do ar = robô normal.
+- Painel "Stack-Chan Home" em `https://m5.pulpfy.com` (nginx → `127.0.0.1:3150`), login único (hash scrypt no `.env`),
+  DNS na Hostinger (a ferramenta MCP da Hostinger travou nesta máquina; a usuária edita DNS no hPanel).
+- Comandos (em `gateway/`): `npm test`, `scripts/deploy.sh [deploy|status|logs|rollback|stop]`, `scripts/set-endpoint.sh`,
+  `scripts/update-nginx.sh` (só os 2 arquivos do m5, com backup, `nginx -t` e restauração automática).
+- **A VPS é compartilhada com sistemas de produção** (`evolu-ia`, `mcp-shopee`, `openclaw`): não mexa em outros containers,
+  pastas nem em outros sites do nginx. O container roda como uid 10001 (o uid 1000 da VPS é de outro projeto).
+- Segredos (token MCP, `SECRETS_KEY`, hash da senha) só no `.env` da VPS (chmod 600), nunca no chat, no git ou nos logs.
+- Ferramentas pesam em toda fala do robô (a descrição vai para a IA do xiaozhi.me): o gateway expõe só 5 (com 12, as
+  histórias longas engasgavam). Nomes não podem repetir os embutidos do xiaozhi.me: `play_music` gerava o alerta
+  "Duplicate tool names" no robô (por isso `family_music`).
+- **Limite de 32 ferramentas visíveis à IA no robô**: em 2026-10-09 são 31 (39 registradas, 8 `[user]` ficam ocultas).
+  Antes de criar ferramenta nova no firmware, junte numa existente com parâmetro `action` (como `self.ir`, `self.poker`).
+- Músicas no robô: ferramenta de firmware `self.gateway.play_audio` (`main/hal/utils/gateway_audio.cpp`) baixa de
+  `https://m5.pulpfy.com/a/<código>` para `historias/musica_*.ogg` no cartão e toca com o player de histórias.
 
 ## Hardware
 
 - Robô: M5Stack StackChan (CoreS3, ESP32-S3, 16 MB flash, 8 MB PSRAM)
-- Porta USB: `/dev/cu.usbmodem14201` (USB-Serial/JTAG nativo, VID:PID 303a:1001, MAC 7c:4f:ad:ae:2e:58)
+- Porta USB: `/dev/cu.usbmodem14201` (às vezes muda para `14101`; USB-Serial/JTAG nativo, VID:PID 303a:1001, MAC 7c:4f:ad:ae:2e:58)
   - Se a porta mudar: `ls /dev/cu.usbmodem*`
 - Não mova à mão partes ligadas aos servos com o robô ligado.
 
@@ -57,6 +77,7 @@ cmake -S tests -B build-host-tests && cmake --build build-host-tests && ctest --
 ## Backup do firmware de fábrica
 
 `backup/factory_flash_16MB.bin` é a imagem completa da flash, tirada em 2026-09-30 (fora do git via `.git/info/exclude`).
+`backup/app_ota0_antes_do_gateway_2026-10-09.bin`: só o app (ota_0, 0x20000) antes da gravação de 2026-10-09 (SHA-256 ao lado).
 - ota_1: stack-chan **1.5.1** (IDF v5.5.4), o firmware ativo de fábrica; ota_0: app flappy_bird (App Center)
 - SHA-256 em `backup/factory_flash_16MB.sha256`
 - Contém a NVS (credenciais de Wi-Fi etc.): **não compartilhar nem commitar**.
