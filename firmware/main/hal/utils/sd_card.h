@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: MIT
  */
 #pragma once
+#include <cstddef>
 
 /**
  * @brief microSD card on the CoreS3 slot, mounted as FAT at /sdcard.
@@ -26,7 +27,7 @@ inline constexpr const char* kMountPoint = "/sdcard";
  * FATFS buffers live in PSRAM, so every SD transfer needs a temporary DMA-capable copy in internal RAM. When
  * that runs out the SPI driver crashed (seen during long conversations), so background writers check this first
  */
-bool hasDmaHeadroom();
+bool hasDmaHeadroom(size_t bytes = 8 * 1024);
 
 class BusGuard {
 public:

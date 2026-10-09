@@ -11,6 +11,7 @@
 #include <hal/utils/sd_features.h>
 #include <hal/utils/papa_letras.h>
 #include <hal/utils/panda_mandou.h>
+#include <hal/utils/poker.h>
 #include <hal/utils/stories.h>
 
 using namespace stackchan;
@@ -159,6 +160,9 @@ void Hal::xiaozhi_mcp_init()
 
     // O Panda Mandou + color hunt
     panda_mandou::registerMcpTools();
+
+    // Poker do Panda (five-card draw against the robot)
+    poker::registerMcpTools();
 
     // Stories read aloud by the AI, page by page
     stories::registerMcpTools();

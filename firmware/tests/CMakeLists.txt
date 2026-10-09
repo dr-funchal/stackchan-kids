@@ -16,3 +16,8 @@ target_include_directories(motion_math_test PRIVATE
 target_compile_features(motion_math_test PRIVATE cxx_std_17)
 
 add_test(NAME motion_math_test COMMAND $<TARGET_FILE:motion_math_test>)
+
+add_executable(poker_rules_test poker_rules_test.cpp)
+target_include_directories(poker_rules_test PRIVATE ../main)
+target_compile_features(poker_rules_test PRIVATE cxx_std_17)
+add_test(NAME poker_rules_test COMMAND $<TARGET_FILE:poker_rules_test>)

@@ -14,6 +14,9 @@ namespace stories {
 
 void registerMcpTools();
 
+// Copy the stories packed in the firmware (assets_src/historias/*.txt) to the SD card if missing. Boot only
+void exportSeeds();
+
 // "Title; Title; ..." of the stories that can be read aloud
 std::string listTitles();
 

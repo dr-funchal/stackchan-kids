@@ -134,18 +134,35 @@ void sd_features_register_mcp_tools()
                     return true;
                 });
 
-    mcp.AddTool("self.ir.learn",
-                "Learn a button of an infrared remote control (TV, air conditioner, fan, sound system) so you can "
-                "press it later with self.ir.send. Use a short name like \"tv_ligar\", \"tv_volume_mais\", "
-                "\"ar_desligar\". After calling, tell the person to point the remote at your body and press the "
-                "button now. You will hear a chime when it is learned, or an alert sound if nothing was received.",
-                PropertyList({Property("name", kPropertyTypeString),
-                              Property("seconds", kPropertyTypeInteger, 15, 5, 30)}),
+    // One tool for the remote: the server accepts at most 32 tools in all
+    mcp.AddTool("self.ir",
+                "Infrared remote control (TV, air conditioner, fan, sound system). action: send (press a learned "
+                "button: turn the TV on/off, volume...; partial names work), list (learned buttons), learn (learn a "
+                "new button; use a short name like \"tv_ligar\", \"tv_volume_mais\", \"ar_desligar\"; then tell the "
+                "person to point the remote at your body and press the button now: a chime means learned, an alert "
+                "sound means nothing was received). name = the button.",
+                PropertyList({Property("action", kPropertyTypeString),
+                              Property("name", kPropertyTypeString, std::string(""))}),
                 [](const PropertyList& properties) -> ReturnValue {
+                    std::string action = properties["action"].value<std::string>();
+                    std::string name   = properties["name"].value<std::string>();
+                    if (action == "list" || (action == "send" && name.empty())) {
+                        return json_list(ir_remote::list());
+                    }
+                    if (action == "send") {
+                        std::string error;
+                        if (!ir_remote::send(name, error)) {
+                            return error + ". Learned buttons: " + json_list(ir_remote::list());
+                        }
+                        return true;
+                    }
+                    if (action != "learn" || name.empty()) {
+                        return std::string("Use action send, list or learn (learn needs a name).");
+                    }
                     if (_ir_learning.exchange(true)) {
                         return std::string("Already waiting for a remote button.");
                     }
-                    auto* job = new IrLearnJob{properties["name"].value<std::string>(), properties["seconds"].value<int>()};
+                    auto* job = new IrLearnJob{name, 15};
                     if (xTaskCreatePinnedToCoreWithCaps(ir_learn_task, "ir_learn", 6144, job, 3, nullptr,
                                                         tskNO_AFFINITY, MALLOC_CAP_SPIRAM) != pdPASS) {
                         delete job;
@@ -154,21 +171,6 @@ void sd_features_register_mcp_tools()
                     }
                     return std::string("Waiting for the remote button now.");
                 });
-
-    mcp.AddTool("self.ir.send",
-                "Press a learned infrared remote button: turn the TV or air conditioner on/off, change volume, etc. "
-                "Use self.ir.list to see the learned names; partial names work.",
-                PropertyList({Property("name", kPropertyTypeString)}),
-                [](const PropertyList& properties) -> ReturnValue {
-                    std::string error;
-                    if (!ir_remote::send(properties["name"].value<std::string>(), error)) {
-                        return error + ". Learned buttons: " + json_list(ir_remote::list());
-                    }
-                    return true;
-                });
-
-    mcp.AddTool("self.ir.list", "List the infrared remote buttons you have learned.", PropertyList(),
-                [](const PropertyList&) -> ReturnValue { return json_list(ir_remote::list()); });
 
     gateway_audio::registerMcpTools();
 

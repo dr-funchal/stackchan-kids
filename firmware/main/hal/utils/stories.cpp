@@ -3,10 +3,13 @@
  */
 #include "stories.h"
 #include "stories_builtin.h"
+#include "stories_seeds.h"
 #include "sd_card.h"
 #include "sd_features.h"
 #include <mcp_server.h>
 #include <esp_log.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include <esp_random.h>
 #include <algorithm>
 #include <cstdio>
@@ -35,7 +38,13 @@ static bool load_card_story(const std::string& file)
 {
     std::string text;
     {
-        if (!sd_card::hasDmaHeadroom()) {
+        // Small reads (512-byte sectors) need less DMA headroom than the background writers; wait up to 1 s for it
+        // instead of failing (during a conversation the big check failed and the story looked missing)
+        for (int i = 0; i < 20 && !sd_card::hasDmaHeadroom(4 * 1024); i++) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        if (!sd_card::hasDmaHeadroom(4 * 1024)) {
+            ESP_LOGW(TAG, "No DMA memory to read %s", file.c_str());
             return false;
         }
         sd_card::BusGuard guard;
@@ -87,6 +96,30 @@ static std::string page_text()
     return text;
 }
 
+void stories::exportSeeds()
+{
+    if (!sd_card::isMounted()) {
+        return;
+    }
+    int copied = 0;
+    for (auto& seed : kStorySeeds) {
+        std::string path = std::string(sd_paths::kStories) + "/" + seed.file;
+        sd_card::BusGuard guard;
+        FILE* f = fopen(path.c_str(), "r");
+        if (f) {
+            fclose(f);
+            continue;
+        }
+        f = fopen(path.c_str(), "w");
+        if (f) {
+            fputs(seed.text, f);
+            fclose(f);
+            copied++;
+        }
+    }
+    ESP_LOGI(TAG, "Story seeds copied to the card: %d new", copied);
+}
+
 std::string stories::listTitles()
 {
     std::string list;
@@ -101,21 +134,51 @@ std::string stories::listTitles()
 
 bool stories::start(const std::string& name, std::string& result, bool allowRandom)
 {
+    ESP_LOGI(TAG, "Looking for '%s' (card has %u .txt)", name.c_str(), (unsigned)card_stories().size());
     std::string wanted = sd_paths::sanitize(name);
     _pages.clear();
     _page = 0;
 
     const BuiltinStory* found = nullptr;
+    // Card stories by the full request (a .txt title is its file name)
+    {
+        for (auto& f : card_stories()) {
+            if (!wanted.empty() && sd_paths::sanitize(f).find(wanted) != std::string::npos &&
+                load_card_story(f)) {
+                break;
+            }
+        }
+    }
     for (auto& s : kBuiltinStories) {
+        if (!_pages.empty()) {
+            break;  // A card story already matched the full request
+        }
         std::string title = sd_paths::sanitize(s.title);
-        if (!wanted.empty() && (title.find(wanted) != std::string::npos ||
-                                wanted.find(s.id) != std::string::npos)) {
+        // Title contains the request, or the request is exactly the id. Never "request contains the id": "narnia"
+        // is inside "narnia - o sobrinho do mago" and picked the wrong Narnia
+        if (!wanted.empty() && (title.find(wanted) != std::string::npos || wanted == s.id)) {
             found = &s;
             break;
         }
     }
     // Loose match on any word of the request ("a do morcego" -> morcego)
-    if (!found) {
+    if (!found && _pages.empty()) {
+        for (auto& f : card_stories()) {
+            std::string file = sd_paths::sanitize(f);
+            size_t pos = 0;
+            bool hit   = false;
+            while (!hit && pos < wanted.size()) {
+                size_t end       = wanted.find('_', pos);
+                std::string word = wanted.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+                hit = word.size() >= 5 && word != "narnia" && file.find(word) != std::string::npos;
+                pos = end == std::string::npos ? wanted.size() : end + 1;
+            }
+            if (hit && load_card_story(f)) {
+                break;
+            }
+        }
+    }
+    if (!found && _pages.empty()) {
         for (auto& s : kBuiltinStories) {
             std::string title = sd_paths::sanitize(s.title);
             size_t pos        = 0;
@@ -129,14 +192,6 @@ bool stories::start(const std::string& name, std::string& result, bool allowRand
                 pos = end == std::string::npos ? wanted.size() : end + 1;
             }
             if (found) {
-                break;
-            }
-        }
-    }
-    if (!found) {
-        for (auto& f : card_stories()) {
-            if (!wanted.empty() && sd_paths::sanitize(f).find(wanted) != std::string::npos &&
-                load_card_story(f)) {
                 break;
             }
         }

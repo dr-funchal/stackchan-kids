@@ -8,6 +8,7 @@
 #include <hal/utils/sd_card.h>
 #include <hal/utils/sd_features.h>
 #include <hal/utils/ir_remote.h>
+#include <hal/utils/stories.h>
 #include "i2c_device.h"
 #include "axp2101.h"
 #include "settings.h"
@@ -633,6 +634,7 @@ public:
         if (sd_card::mount(true)) {
             sd_card::logInfo();
             sd_card::prepare();
+            stories::exportSeeds();  // New stories travel inside the firmware and land on the card
         }
         InitializeCamera();
         StartTouchpadTimer();

@@ -29,9 +29,9 @@ static constexpr gpio_num_t kMisoPin     = GPIO_NUM_35;  // Also the LCD D/C lin
 
 static sdmmc_card_t* _card = nullptr;
 
-bool sd_card::hasDmaHeadroom()
+bool sd_card::hasDmaHeadroom(size_t bytes)
 {
-    return heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) >= 8 * 1024;
+    return heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) >= bytes;
 }
 
 sd_card::BusGuard::BusGuard()

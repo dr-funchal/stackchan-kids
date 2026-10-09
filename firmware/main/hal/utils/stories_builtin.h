@@ -191,4 +191,5 @@ inline const BuiltinStory kBuiltinStories[] = {
       "voltaram a se mexer. Juntos, eles venceram a Feiticeira Branca, e Narnia ficou livre para sempre. Os quatro "
       "irmaos viraram reis e rainhas de Narnia e viveram muitas aventuras. E aprenderam que o perdao e a coragem "
       "sao mais fortes que qualquer feitico. E voce, quem voce levaria com voce para Narnia? Fim."}},
+
 };
