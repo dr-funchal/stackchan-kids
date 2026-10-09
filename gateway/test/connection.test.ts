@@ -77,7 +77,7 @@ test('speaks MCP to the cloud endpoint, reconnects after a drop, and never logs 
 
           const list = await cloud.request('tools/list');
           const names = list.result.tools.map((t: { name: string }) => t.name);
-          assert.deepEqual(names.sort(), ['gateway_get_time', 'gateway_secret_word', 'library_read_page', 'library_search']);
+          assert.deepEqual(names.sort(), ['gateway_secret_word', 'library_read_page', 'library_search']);
 
           const call = await cloud.request('tools/call', { name: 'gateway_secret_word', arguments: {} });
           assert.match(call.result.content[0].text, /secret word is: [a-z]+-\d\d/);

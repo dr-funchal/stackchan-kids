@@ -64,7 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     endpoint: endpoint ? checkEndpoint(endpoint) : undefined,
     enabled: bool(env.GATEWAY_ENABLED, true, 'GATEWAY_ENABLED'),
-    modules: (env.MODULES ?? 'diagnostics,stories,music,spotify,weather')
+    modules: (env.MODULES ?? 'stories,music,spotify,weather')
       .split(',')
       .map((m) => m.trim())
       .filter(Boolean),

@@ -8,8 +8,7 @@ export function weatherModule(weather: WeatherService): GatewayModule {
       {
         name: 'weather_forecast',
         description:
-          'Current weather and the forecast for the next days. Without a city it uses the family\'s home city. Use for ' +
-          '"vai chover?", "está frio lá fora?", "como vai estar o tempo amanhã?". Answer simply, for children.',
+          'Weather now and the next days (default: the family\'s home city). Answer simply, for children.',
         inputSchema: {
           type: 'object',
           properties: { city: { type: 'string', maxLength: 80, description: 'Optional city; default is home.' } },

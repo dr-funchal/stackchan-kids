@@ -46,19 +46,40 @@ test('search matches a theme; no match falls back to the full list', async () =>
   assert.match(out, /"O Dinossauro Sonolento" \(id: dino,/);
   assert.doesNotMatch(out, /Pão de Queijo/);
   const none = await text('library_search', { query: 'submarino' });
-  assert.match(none, /No story matches/);
+  assert.match(none, /No match in the online library/);
   assert.match(none, /Dinossauro/);
 });
 
-test('read by title in one call, pages in order, last page says FIM', async () => {
-  const first = await text('library_read_page', { story: 'dinossauro sonolento' });
+test('read by title in one call, rules only on page 1, last page says FIM', async () => {
+  const first = await text('library_read_page', { story: 'dinossauro sonolento', page: 1 });
   assert.match(first, /PAGE 1 OF (\d+)/);
   assert.match(first, /READ-ALOUD RULES/);
   const total = Number(/OF (\d+)/.exec(first)![1]);
   assert.ok(total >= 2);
-  assert.match(first, /call library_read_page with story "dino" and page 2/);
-  assert.match(await text('library_read_page', { story: 'dino', page: total }), /FIM/);
-  assert.match(await text('library_read_page', { story: 'dino', page: total + 1 }), /already over/);
+  assert.match(first, /call library_read_page with story "dino"\./);
+  const second = await text('library_read_page', { story: 'dino' });
+  assert.match(second, /PAGE 2 OF/);
+  assert.doesNotMatch(second, /READ-ALOUD RULES/, 'rules are not repeated: the LLM re-reads every page');
+  let last = second;
+  for (let p = 3; p <= total; p++) last = await text('library_read_page', { story: 'dino' });
+  assert.match(last, /FIM/);
+  assert.match(await text('library_read_page', { story: 'dino' }), /is over/);
+});
+
+test('omitting the page continues the story; jumping ahead is clamped to the next page', async () => {
+  const long = Array.from({ length: 80 }, (_, i) => `Frase longa número ${i + 1} desta história de teste.`).join(' ');
+  await writeFile(join(dataDir, 'historias', 'longa.txt'), `# A Longa\n\n${long}`);
+  assert.match(await text('library_read_page', { story: 'longa' }), /PAGE 1 OF/);
+  assert.match(await text('library_read_page', { story: 'longa' }), /PAGE 2 OF/);
+  assert.match(await text('library_read_page', { story: 'longa', page: 3 }), /PAGE 3 OF/);
+  assert.match(await text('library_read_page', { story: 'longa', page: 5 }), /PAGE 4 OF/, 'page 4 is not skipped');
+  assert.match(await text('library_read_page', { story: 'longa', page: 1 }), /PAGE 1 OF/, 'going back is allowed');
+});
+
+test('a first line repeating the title is not read twice', async () => {
+  await writeFile(join(dataDir, 'historias', 'repetida.txt'), '# A Lua Dançante\n\nA LUA DANÇANTE\n\nEra uma vez a Lua. Fim.');
+  const page = await text('library_read_page', { story: 'lua dancante' });
+  assert.match(page, /TEXT: Era uma vez/);
 });
 
 test('unknown stories and path-like input never escape the library', async () => {

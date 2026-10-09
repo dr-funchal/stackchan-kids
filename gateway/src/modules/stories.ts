@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import type { GatewayModule } from '../registry/registry.ts';
 import { bestMatch, fold, queryWords, slug } from '../text.ts';
 
-const PAGE_CHARS = 750; // ~120 words: one breath of narration per tool call, same size the robot uses for SD stories
+// ~160 words per tool call. Every page is a round trip through xiaozhi.me's LLM (the pause between pages), and the
+// conversation it re-reads grows with each page, so fewer, larger pages read more smoothly than the robot's 750.
+const PAGE_CHARS = 1000;
+const SESSION_MS = 30 * 60_000;
 const MAX_FILE_BYTES = 256 * 1024;
 const MAX_LISTED = 10;
 
@@ -46,6 +49,9 @@ function parseStoryFile(name: string, raw: string): { id: string; title: string;
     title = first.slice(2).trim();
     body = body.slice(first.length);
   }
+  // Pasted stories often repeat the title as their first line: the narrator would say it twice
+  const lead = body.trimStart().split('\n', 1)[0]!.trim();
+  if (lead && fold(lead) === fold(title)) body = body.trimStart().slice(lead.length);
   return { id: slug(base, 100), title, body };
 }
 
@@ -122,22 +128,25 @@ export async function storyText(dir: string, id: string): Promise<string | undef
 }
 
 const RULES =
-  'READ-ALOUD RULES: read the page EXACTLY as written, word for word, with an expressive storyteller voice for small ' +
+  'READ-ALOUD RULES: read each page EXACTLY as written, word for word, with an expressive storyteller voice for small ' +
   'children: do not summarize, skip, add or explain anything. If a child interrupts, answer briefly and then continue.';
 
 export const storiesDir = (dataDir: string): string => join(dataDir, 'historias');
 
-export function storiesModule(opts: { dataDir: string }): GatewayModule {
+export function storiesModule(opts: { dataDir: string; now?: () => number }): GatewayModule {
   const dir = storiesDir(opts.dataDir);
+  const now = opts.now ?? Date.now;
+  // The story being read and the last page served: lets the LLM just ask for "the next page" and stops it skipping
+  let session: { id: string; page: number; at: number } | undefined;
+
   return {
     name: 'stories',
     tools: () => [
       {
         name: 'library_search',
         description:
-          'ONLINE STORY LIBRARY: extra children stories that are NOT in the robot\'s own list (self.story.list). Whenever ' +
-          'a child asks for a story by name or theme, search here too, especially when the robot\'s list does not have ' +
-          'it. NEVER tell the child a story does not exist before searching here. Then read it with library_read_page.',
+          'ONLINE STORY LIBRARY with stories that are NOT in self.story.list. When a child asks for a story by name or ' +
+          'theme, search here too before saying it does not exist. Then read it with library_read_page.',
         inputSchema: {
           type: 'object',
           properties: { query: { type: 'string', maxLength: 120, description: 'Title or theme. Empty lists all.' } },
@@ -154,29 +163,29 @@ export function storiesModule(opts: { dataDir: string }): GatewayModule {
           const shown = (matches.length ? matches : all).slice(0, MAX_LISTED);
           const lines = shown.map((s) => `- "${s.title}" (id: ${s.id}, ${s.pages.length} pages)`);
           const note = matches.length
-            ? 'Stories found in the online library. Read one with library_read_page (story = its title or id, page = 1).'
-            : 'No story matches that in the online library. These are available; offer one or make up a story yourself.';
+            ? 'Found in the online library. Read one with library_read_page (story = title or id).'
+            : 'No match in the online library. These are available; offer one or make up a story yourself.';
           return `${note}\n${lines.join('\n')}`;
         },
       },
       {
         name: 'library_read_page',
         description:
-          'Reads one page of a story from the ONLINE STORY LIBRARY (stories that are not in self.story.list). `story` can ' +
-          'be the title, part of it, or the id (e.g. "dinossauro sonolento"). Start with page 1. Right after reading a ' +
-          'page aloud, call this again with the next page number, without waiting or asking, until it says FIM.',
+          'Reads the next page of a story from the ONLINE STORY LIBRARY (`story` = title, part of it, or id). Call it ' +
+          'again right after reading each page aloud, without asking, until it says FIM.',
         inputSchema: {
           type: 'object',
           properties: {
             story: { type: 'string', minLength: 1, maxLength: 120, description: 'Title, part of the title, or id.' },
-            page: { type: 'integer', minimum: 1, maximum: 500, default: 1 },
+            page: { type: 'integer', minimum: 1, maximum: 500, description: 'Optional; omit to get the next page.' },
           },
           required: ['story'],
           additionalProperties: false,
         },
         summarize: (args, result) => {
           const title = /STORY "([^"]+)"/.exec(result ?? '')?.[1] ?? String(args.story);
-          return `Leu a página ${args.page} de "${title}"`;
+          const page = /PAGE (\d+)/.exec(result ?? '')?.[1] ?? args.page ?? '?';
+          return `Leu a página ${page} de "${title}"`;
         },
         async handler(args) {
           const all = await loadStories(dir);
@@ -185,18 +194,27 @@ export function storiesModule(opts: { dataDir: string }): GatewayModule {
             const titles = all.map((s) => `"${s.title}"`).join(', ') || 'none';
             return `That story is not in the online library. Available: ${titles}.`;
           }
-          const page = Number(args.page);
-          if (page > story.pages.length) {
-            return `"${story.title}" only has ${story.pages.length} pages. It is already over (FIM).`;
+          const t = now();
+          const current = session && session.id === story.id && t - session.at < SESSION_MS ? session : undefined;
+          let page = args.page === undefined ? (current ? current.page + 1 : 1) : Number(args.page);
+          // The LLM sometimes jumps ahead (3 -> 5 was seen): never skip a page of the story being read
+          if (current && page > current.page + 1) page = current.page + 1;
+          const total = story.pages.length;
+          if (page > total) {
+            session = undefined;
+            return `"${story.title}" is over (FIM): it has ${total} pages.`;
           }
-          const header = `STORY "${story.title}" - PAGE ${page} OF ${story.pages.length}`;
+          session = { id: story.id, page, at: t };
           const text = story.pages[page - 1]!;
-          const next =
-            page === story.pages.length
-              ? '[FIM - this was the last page. When you finish reading, softly ask the children what they liked most.]'
-              : `NEXT: as soon as you finish reading this page aloud, call library_read_page with story "${story.id}" and ` +
-                `page ${page + 1}. Do not stop, do not ask if they want more.`;
-          return `${header}\n${RULES}\nTEXT: ${text}\n${next}`;
+          const end =
+            page === total
+              ? '[FIM - last page. After reading it, softly ask the children what they liked most.]'
+              : `NEXT: right after reading this page aloud, call library_read_page with story "${story.id}".`;
+          // The rules go only with the first page: every page stays in the conversation the LLM re-reads
+          const header = page === 1
+            ? `STORY "${story.title}" - PAGE 1 OF ${total}\n${RULES}`
+            : `STORY "${story.title}" - PAGE ${page} OF ${total}`;
+          return `${header}\nTEXT: ${text}\n${end}`;
         },
       },
     ],

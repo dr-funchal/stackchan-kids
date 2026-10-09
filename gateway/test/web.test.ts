@@ -112,7 +112,7 @@ test('API needs a session; login checks origin and password and sets a strict co
   cookie = set.split(';')[0]!;
   const status = await (await req('GET', '/api/status')).json();
   assert.equal(status.stories, 1);
-  assert.equal(status.tools.exposed, 12);
+  assert.equal(status.tools.exposed, 6);
 });
 
 test('state changes without the panel origin are refused (CSRF)', async () => {

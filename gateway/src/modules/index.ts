@@ -33,7 +33,7 @@ export const MODULES: ModuleInfo[] = [
   {
     name: 'diagnostics',
     title: 'Diagnóstico',
-    description: 'Palavra secreta (teste de ponta a ponta) e hora.',
+    description: 'Palavra secreta, para testar o caminho robô → gateway. Deixe desligado no dia a dia.',
     build: (ctx) => diagnosticsModule({ timezone: ctx.timezone }),
   },
   {
@@ -51,7 +51,7 @@ export const MODULES: ModuleInfo[] = [
   {
     name: 'spotify',
     title: 'Controle do Spotify',
-    description: 'Pausar, pular, volume, aparelhos e "o que está tocando".',
+    description: 'Uma ferramenta para pausar, pular, volume, aparelhos e "o que está tocando".',
     build: (ctx) => spotifyModule(ctx.spotify),
   },
   {

@@ -20,7 +20,7 @@ const EMPTY_ARGS = { type: 'object', properties: {}, additionalProperties: false
  * Phase-3 smoke test. The secret word is random per call and only exists in the gateway log, so if the robot says it
  * the request really went robot -> xiaozhi.me -> gateway (the LLM cannot guess it, unlike the time of day).
  */
-export function diagnosticsModule(opts: { timezone: string }): GatewayModule {
+export function diagnosticsModule(_opts: { timezone: string }): GatewayModule {
   return {
     name: 'diagnostics',
     tools: () => [
@@ -36,22 +36,6 @@ export function diagnosticsModule(opts: { timezone: string }): GatewayModule {
           const word = `${WORDS[randomInt(WORDS.length)]}-${randomInt(10, 100)}`;
           log.info('secret word issued', { word });
           return `The gateway secret word is: ${word}. Say it exactly like that.`;
-        },
-      },
-      {
-        name: 'gateway_get_time',
-        description:
-          'Returns the current date and time from the Stack-Chan gateway. Call this when the user asks what time it is ' +
-          'or what day it is today.',
-        inputSchema: { ...EMPTY_ARGS },
-        summarize: () => 'Perguntou a hora',
-        async handler() {
-          const text = new Intl.DateTimeFormat('pt-BR', {
-            dateStyle: 'full',
-            timeStyle: 'short',
-            timeZone: opts.timezone,
-          }).format(new Date());
-          return `Current date and time (${opts.timezone}): ${text}.`;
         },
       },
     ],

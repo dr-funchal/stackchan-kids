@@ -201,7 +201,14 @@ export class SpotifyService {
       if (res.status === 401 && attempt === 0) continue;
       if (res.status === 204 || res.status === 202) return undefined as T | undefined;
       const text = await res.text();
-      const data = text ? (JSON.parse(text) as Record<string, unknown>) : undefined;
+      let data: Record<string, unknown> | undefined;
+      try {
+        data = text ? (JSON.parse(text) as Record<string, unknown>) : undefined;
+      } catch {
+        // Player commands sometimes answer 200 with a bare snapshot id instead of 204: not an error
+        if (res.ok) return undefined as T | undefined;
+        throw new SpotifyError(`Spotify error ${res.status}`, res.status);
+      }
       if (!res.ok) {
         const err = data?.error as { message?: string; reason?: string } | undefined;
         const reason = err?.reason === 'PREMIUM_REQUIRED' ? 'Spotify Premium is required to control playback' : '';

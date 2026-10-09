@@ -53,10 +53,8 @@ export function musicModule(opts: {
       {
         name: 'play_music',
         description:
-          'Plays music whenever someone asks to play or put on a song, artist, album or playlist ("toca Galinha ' +
-          'Pintadinha", "coloca música na sala"). `where` is optional: "robot" for the robot\'s own speaker, or the ' +
-          'name of a Spotify device of the family (e.g. "sala", "celular", "TV"). Without `where` it chooses by itself. ' +
-          'Always follow the instructions in the result.',
+          'Plays a song, artist, album or playlist ("toca Galinha Pintadinha"). Optional `where`: "robot" or a Spotify ' +
+          'device name ("sala", "TV"). Follow the instructions in the result.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -90,24 +88,6 @@ export function musicModule(opts: {
           const robot = onRobot(query);
           if (robot) return robot;
           return connected ? onSpotify(query) : notFound(query);
-        },
-      },
-      {
-        name: 'music_list',
-        description:
-          'Lists the songs in the robot\'s own music library (they play on the robot\'s speaker with play_music). Call ' +
-          'when someone asks which songs the robot knows or has.',
-        inputSchema: {
-          type: 'object',
-          properties: { query: { type: 'string', maxLength: 120, description: 'Optional filter.' } },
-          additionalProperties: false,
-        },
-        summarize: () => 'Listou as músicas do robô',
-        async handler(args) {
-          const tracks = library.search(String(args.query ?? '')).slice(0, 20);
-          if (tracks.length === 0) return 'The robot\'s music library has no matching songs.';
-          return `Songs on the robot (${tracks.length}):\n` +
-            tracks.map((t) => `- "${t.title}"${t.artist ? ` (${t.artist})` : ''}`).join('\n');
         },
       },
     ],
