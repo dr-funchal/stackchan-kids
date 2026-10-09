@@ -1,11 +1,9 @@
 import type { GatewayModule } from '../registry/registry.ts';
 import type { MusicLibrary } from '../services/music-library.ts';
-import type { SpotifyService } from '../services/spotify.ts';
 import type { WeatherService } from '../services/weather.ts';
 import type { SettingsFile } from '../settings.ts';
 import { diagnosticsModule } from './diagnostics.ts';
 import { musicModule } from './music.ts';
-import { spotifyModule } from './spotify.ts';
 import { storiesModule } from './stories.ts';
 import { weatherModule } from './weather.ts';
 
@@ -14,7 +12,6 @@ export interface ModuleContext {
   timezone: string;
   settings: SettingsFile;
   music: MusicLibrary;
-  spotify: SpotifyService;
   weather: WeatherService;
 }
 
@@ -45,14 +42,8 @@ export const MODULES: ModuleInfo[] = [
   {
     name: 'music',
     title: 'Música',
-    description: '"Toca X": no alto-falante do robô (biblioteca própria) ou no Spotify.',
-    build: (ctx) => musicModule({ library: ctx.music, spotify: ctx.spotify, settings: ctx.settings }),
-  },
-  {
-    name: 'spotify',
-    title: 'Controle do Spotify',
-    description: 'Uma ferramenta para pausar, pular, volume, aparelhos e "o que está tocando".',
-    build: (ctx) => spotifyModule(ctx.spotify),
+    description: '"Toca X": músicas da biblioteca da família, no alto-falante do robô.',
+    build: (ctx) => musicModule({ library: ctx.music }),
   },
   {
     name: 'weather',

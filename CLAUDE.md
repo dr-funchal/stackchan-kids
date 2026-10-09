@@ -15,10 +15,10 @@ Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/
 - **A VPS é compartilhada com sistemas de produção** (`evolu-ia`, `mcp-shopee`, `openclaw`): não mexa em outros containers,
   pastas nem em outros sites do nginx. O container roda como uid 10001 (o uid 1000 da VPS é de outro projeto).
 - Segredos (token MCP, `SECRETS_KEY`, hash da senha) só no `.env` da VPS (chmod 600), nunca no chat, no git ou nos logs.
-- Ferramentas pesam em toda fala do robô (a descrição vai para a IA do xiaozhi.me): o gateway expõe só 5 (com 12, as
+- Ferramentas pesam em toda fala do robô (a descrição vai para a IA do xiaozhi.me): o gateway expõe só 4 (com 12, as
   histórias longas engasgavam). Nomes não podem repetir os embutidos do xiaozhi.me: `play_music` gerava o alerta
   "Duplicate tool names" no robô (por isso `family_music`).
-- **Limite de 32 ferramentas visíveis à IA no robô**: em 2026-10-09 são 31 (39 registradas, 8 `[user]` ficam ocultas).
+- **Limite de 32 ferramentas visíveis à IA no robô**: em 2026-10-09 são 32, no limite (39 registradas, 7 `[user]` ficam ocultas).
   Antes de criar ferramenta nova no firmware, junte numa existente com parâmetro `action` (como `self.ir`, `self.poker`).
 - Músicas no robô: ferramenta de firmware `self.gateway.play_audio` (`main/hal/utils/gateway_audio.cpp`) baixa de
   `https://m5.pulpfy.com/a/<código>` para `historias/musica_*.ogg` no cartão e toca com o player de histórias.

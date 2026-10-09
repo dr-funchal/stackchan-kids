@@ -49,8 +49,8 @@ export class JsonFile<T> {
 }
 
 /**
- * Secrets at rest (Spotify tokens, API keys of external MCP servers): AES-256-GCM with SECRETS_KEY from .env, so a
- * copy of the data folder alone does not leak them.
+ * Secrets at rest (API keys of external MCP servers): AES-256-GCM with SECRETS_KEY from .env, so a copy of the data
+ * folder alone does not leak them.
  */
 export class SecretBox {
   #key: Buffer;

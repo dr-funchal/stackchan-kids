@@ -14,8 +14,6 @@ import { deleteStory, loadStories, saveStory, storiesDir, storyText } from '../m
 import type { ToolRegistry } from '../registry/registry.ts';
 import type { ExternalMcp } from '../services/external-mcp.ts';
 import type { MusicLibrary } from '../services/music-library.ts';
-import { SpotifyError } from '../services/spotify.ts';
-import type { SpotifyService } from '../services/spotify.ts';
 import type { WeatherService } from '../services/weather.ts';
 import type { Settings, SettingsFile } from '../settings.ts';
 import type { Auth } from './auth.ts';
@@ -31,7 +29,6 @@ export interface ApiDeps {
   activity: ActivityFeed;
   registry: ToolRegistry;
   music: MusicLibrary;
-  spotify: SpotifyService;
   weather: WeatherService;
   external: ExternalMcp;
   connection(): ConnectionInfo;
@@ -61,11 +58,6 @@ export function sniffAudio(head: Buffer): string | undefined {
   if (head.readUInt32BE(0) === 0x1a45dfa3) return 'webm';
   if (head[0] === 0xff && (head[1]! & 0xe0) === 0xe0) return 'mp3/aac'; // MPEG audio or ADTS frame sync
   return undefined;
-}
-
-function spotifyErrors(err: unknown): never {
-  if (err instanceof SpotifyError) throw new HttpError(err.status >= 400 && err.status < 600 ? err.status : 502, err.message);
-  throw err;
 }
 
 export function registerApi(router: Router, d: ApiDeps): { broadcast: Broadcast } {
@@ -141,7 +133,6 @@ export function registerApi(router: Router, d: ApiDeps): { broadcast: Broadcast 
       tools: { exposed: d.registry.size, total: d.registry.catalog().length },
       stories: stories.length,
       music: d.music.list().length,
-      spotify: { configured: Boolean(s.spotifyClientId), connected: await d.spotify.connected() },
       homeCity: s.home?.name ?? '',
       external: s.external.filter((e) => e.enabled).length,
     };
@@ -300,147 +291,6 @@ export function registerApi(router: Router, d: ApiDeps): { broadcast: Broadcast 
     { auth: false },
   );
 
-  /* --------------------------------- Spotify -------------------------------- */
-
-  router.on('GET', '/api/spotify', async (c) => {
-    const s = d.settings.get();
-    const connected = await d.spotify.connected();
-    const base = {
-      configured: Boolean(s.spotifyClientId),
-      clientId: s.spotifyClientId,
-      redirectUri: d.spotify.redirectUri,
-      connected,
-      kidMode: s.kidMode,
-      maxVolume: s.spotifyMaxVolume,
-      defaultDevice: s.spotifyDefaultDevice,
-    };
-    if (!connected) return sendJson(c, 200, base);
-    try {
-      const [user, devices, playback] = await Promise.all([d.spotify.me(), d.spotify.devices(), d.spotify.playback()]);
-      sendJson(c, 200, { ...base, user, devices, playback: playback ?? null });
-    } catch (err) {
-      sendJson(c, 200, { ...base, error: err instanceof Error ? err.message : String(err) });
-    }
-  });
-
-  router.on('PUT', '/api/spotify/config', async (c) => {
-    const body = await readJson(c);
-    const clientId = str(body.clientId, 64);
-    if (clientId && !/^[a-f0-9]{32}$/i.test(clientId)) throw new HttpError(400, 'o Client ID tem 32 caracteres (0-9, a-f)');
-    if (clientId !== d.settings.get().spotifyClientId) await d.spotify.disconnect();
-    await d.settings.update((s) => {
-      s.spotifyClientId = clientId;
-    });
-    sendJson(c, 200, { ok: true });
-  });
-
-  router.on('POST', '/api/spotify/connect', (c) => {
-    try {
-      sendJson(c, 200, { url: d.spotify.authorizeUrl() });
-    } catch (err) {
-      spotifyErrors(err);
-    }
-  });
-
-  // Spotify redirects the browser here; the cookie is not sent cross-site (SameSite=Strict), the one-time state is
-  router.on(
-    'GET',
-    '/spotify/callback',
-    async (c) => {
-      const code = c.query.get('code');
-      const state = c.query.get('state') ?? '';
-      let result = 'ok';
-      if (!code) result = c.query.get('error') ?? 'denied';
-      else {
-        try {
-          await d.spotify.handleCallback(code, state);
-          d.activity.add({ kind: 'system', title: 'Spotify conectado', ok: true });
-        } catch (err) {
-          result = err instanceof Error ? err.message : 'error';
-          d.log.warn('spotify callback failed', { error: result });
-        }
-      }
-      c.res.writeHead(302, { Location: `/#/spotify?result=${encodeURIComponent(result)}` });
-      c.res.end();
-    },
-    { auth: false },
-  );
-
-  router.on('POST', '/api/spotify/disconnect', async (c) => {
-    await d.spotify.disconnect();
-    d.activity.add({ kind: 'system', title: 'Spotify desconectado', ok: true });
-    sendJson(c, 200, { ok: true });
-  });
-
-  router.on('GET', '/api/spotify/search', async (c) => {
-    const q = str(c.query.get('q'), 120);
-    if (!q) throw new HttpError(400, 'q is required');
-    try {
-      const r = await d.spotify.search(q);
-      const kid = d.settings.get().kidMode;
-      sendJson(c, 200, {
-        tracks: r.tracks.map((t) => ({
-          uri: t.uri,
-          name: t.name,
-          artists: t.artists.map((a) => a.name).join(', '),
-          explicit: t.explicit,
-          blocked: kid && t.explicit,
-          image: t.album?.images.at(-1)?.url ?? null,
-          durationMs: t.duration_ms,
-        })),
-        playlists: r.playlists.map((p) => ({ uri: p.uri, name: p.name, owner: p.owner?.display_name ?? '', image: p.images?.[0]?.url ?? null })),
-        albums: r.albums.map((a) => ({ uri: a.uri, name: a.name, artists: a.artists.map((x) => x.name).join(', '), image: a.images?.at(-1)?.url ?? null })),
-      });
-    } catch (err) {
-      spotifyErrors(err);
-    }
-  });
-
-  router.on('POST', '/api/spotify/play', async (c) => {
-    const body = await readJson(c);
-    try {
-      const uri = str(body.uri, 100);
-      if (!/^spotify:(track|album|playlist|artist):[A-Za-z0-9]+$/.test(uri)) throw new HttpError(400, 'invalid uri');
-      const device = await d.spotify.playUri(uri, str(body.deviceId, 64) || undefined);
-      d.activity.add({ kind: 'system', title: `Spotify pelo painel: tocando em ${device}`, ok: true });
-      sendJson(c, 200, { device });
-    } catch (err) {
-      spotifyErrors(err);
-    }
-  });
-
-  router.on('POST', '/api/spotify/control', async (c) => {
-    const body = await readJson(c);
-    const action = str(body.action, 10);
-    if (!['pause', 'resume', 'next', 'previous'].includes(action)) throw new HttpError(400, 'invalid action');
-    try {
-      await d.spotify.control(action as 'pause');
-      sendJson(c, 200, { ok: true });
-    } catch (err) {
-      spotifyErrors(err);
-    }
-  });
-
-  router.on('POST', '/api/spotify/volume', async (c) => {
-    const body = await readJson(c);
-    try {
-      sendJson(c, 200, { volume: await d.spotify.setVolume(Number(body.percent) || 0) });
-    } catch (err) {
-      spotifyErrors(err);
-    }
-  });
-
-  router.on('POST', '/api/spotify/transfer', async (c) => {
-    const body = await readJson(c);
-    try {
-      const device = await d.spotify.transferTo(str(body.deviceId, 64));
-      d.activity.add({ kind: 'system', title: `Spotify levado para ${device}`, ok: true });
-      sendJson(c, 200, { device });
-    } catch (err) {
-      spotifyErrors(err);
-    }
-  });
-
   /* ------------------------------ External MCPs ------------------------------ */
 
   router.on('GET', '/api/mcp', (c) => sendJson(c, 200, { servers: d.external.list() }));
@@ -524,10 +374,6 @@ export function registerApi(router: Router, d: ApiDeps): { broadcast: Broadcast 
   const publicSettings = (s: Settings) => ({
     homeCity: s.homeCity,
     home: s.home ?? null,
-    kidMode: s.kidMode,
-    spotifyDefaultDevice: s.spotifyDefaultDevice,
-    spotifyMaxVolume: s.spotifyMaxVolume,
-    musicDefaultTarget: s.musicDefaultTarget,
     timezone: d.cfg.timezone,
     publicUrl: d.cfg.publicUrl,
     secretsAvailable: Boolean(d.cfg.secretsKey),
@@ -544,16 +390,6 @@ export function registerApi(router: Router, d: ApiDeps): { broadcast: Broadcast 
         throw new HttpError(400, `cidade não encontrada: ${str(body.homeCity, 80)}`);
       }
     }
-    await d.settings.update((s) => {
-      if (typeof body.kidMode === 'boolean') s.kidMode = body.kidMode;
-      if (typeof body.spotifyDefaultDevice === 'string') s.spotifyDefaultDevice = str(body.spotifyDefaultDevice, 80);
-      if (body.spotifyMaxVolume !== undefined) {
-        s.spotifyMaxVolume = Math.max(10, Math.min(100, Math.round(Number(body.spotifyMaxVolume) || 70)));
-      }
-      if (['auto', 'robot', 'spotify'].includes(String(body.musicDefaultTarget))) {
-        s.musicDefaultTarget = body.musicDefaultTarget as Settings['musicDefaultTarget'];
-      }
-    });
     sendJson(c, 200, publicSettings(d.settings.get()));
   });
 

@@ -21,7 +21,6 @@
   --red-soft: rgba(255, 107, 107, 0.14);
   --blue: #7aa7ff;
   --blue-soft: rgba(122, 167, 255, 0.14);
-  --spotify: #1ed760;
   --face: #fbf6ee;
   --face-ink: #1d2233;
   --radius: 18px;
@@ -344,7 +343,6 @@ a.card:hover { border-color: var(--line-2); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.primary:hover { filter: brightness(1.06); }
-.btn.spotify { background: var(--spotify); border-color: var(--spotify); color: #08130c; }
 .btn.danger { color: var(--red); }
 .btn.danger:hover { border-color: var(--red); background: var(--red-soft); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
@@ -427,15 +425,6 @@ input[type='range'] { width: 100%; accent-color: var(--accent); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { padding: 8px 12px; border-radius: 12px; background: var(--card-2); border: 1px solid var(--line); font-size: 13px; color: var(--text); }
 .chip b { color: var(--accent); font-weight: 650; }
-
-/* --------------------------------- Spotify ---------------------------------- */
-
-.now { display: flex; gap: 16px; align-items: center; }
-.cover { width: 84px; height: 84px; border-radius: 14px; background: var(--card-2); object-fit: cover; flex: none; display: grid; place-items: center; color: var(--faint); }
-.now .controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
-.progress { height: 4px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 10px; }
-.progress i { display: block; height: 100%; width: 0; background: var(--spotify); border-radius: 999px; }
-.device-type { text-transform: capitalize; }
 
 /* --------------------------------- Weather ---------------------------------- */
 

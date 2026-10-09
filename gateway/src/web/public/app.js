@@ -16,7 +16,6 @@ const ICONS = {
   home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
   music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
-  spotify: '<circle cx="12" cy="12" r="10"/><path d="M7 9.5c3.5-1 7.5-.6 10.5 1"/><path d="M7.5 12.8c3-.8 6-.4 8.5 1"/><path d="M8 15.8c2.4-.6 4.6-.3 6.5.8"/>',
   plug: '<path d="M9 2v6M15 2v6"/><path d="M6 8h12v4a6 6 0 0 1-12 0z"/><path d="M12 18v4"/>',
   sliders: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
   activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
@@ -263,13 +262,12 @@ const NAV = [
   { route: '', label: 'Início', icon: 'home' },
   { route: 'historias', label: 'Histórias', icon: 'book' },
   { route: 'musicas', label: 'Músicas', icon: 'music' },
-  { route: 'spotify', label: 'Spotify', icon: 'spotify' },
   { route: 'conexoes', label: 'Conexões MCP', icon: 'plug' },
   { route: 'ferramentas', label: 'Ferramentas', icon: 'sliders' },
   { route: 'atividade', label: 'Atividade', icon: 'activity' },
   { route: 'ajustes', label: 'Ajustes', icon: 'gear' },
 ];
-const TABS = ['', 'historias', 'musicas', 'spotify'];
+const TABS = ['', 'historias', 'musicas', 'atividade'];
 
 function renderShell() {
   app.innerHTML = `
@@ -310,7 +308,7 @@ async function navigate() {
   state.route = route;
   closeModal();
   $$('[data-route]').forEach((a) => {
-    const active = a.dataset.route === route || (a.dataset.route === 'mais' && ['conexoes', 'ferramentas', 'atividade', 'ajustes'].includes(route));
+    const active = a.dataset.route === route || (a.dataset.route === 'mais' && ['conexoes', 'ferramentas', 'ajustes'].includes(route));
     a.classList.toggle('active', active);
   });
   const view = $('#view');
@@ -355,11 +353,10 @@ function activityRow(e, isNew = false) {
 
 const SAY = [
   ['conta a história do', 'dinossauro sonolento'],
+  ['conta uma história de', 'dormir'],
   ['toca', 'Galinha Pintadinha'],
-  ['toca música na', 'sala'],
   ['vai chover', 'amanhã?'],
-  ['pausa a', 'música'],
-  ['qual é a palavra secreta do', 'gateway?'],
+  ['está frio', 'lá fora?'],
 ];
 
 PAGES[''] = async (view, _params, cleanup) => {
@@ -403,24 +400,19 @@ PAGES[''] = async (view, _params, cleanup) => {
         ${tiles.map(([r, ic, n, l]) => `<a class="card stat" href="#/${r}"><span class="num">${n}</span><span class="lbl">${icon(ic, 15)}${esc(l)}</span></a>`).join('')}
       </div>
       <div class="grid grid-2">
-        <section class="card" data-now>${spotifyMiniPlaceholder(status.spotify)}</section>
         <section class="card">${weatherCard(weather)}</section>
-      </div>
-      <div class="grid grid-2">
-        <section class="card flush">
-          <div class="card-head pad-head"><h2>${icon('activity', 18)}Agora há pouco</h2></div>
-          <div class="list feed" data-feed>${act.entries.length ? act.entries.map((e) => activityRow(e)).join('') : '<div class="empty">Nada por aqui ainda.</div>'}</div>
-          <div class="item"><a href="#/atividade" class="small">Ver toda a atividade ${icon('arrow', 14)}</a></div>
-        </section>
         <section class="card">
           <div class="card-head"><h2>${icon('sparkle', 18)}Experimente dizer</h2></div>
           <div class="chips">${SAY.map(([a, b]) => `<span class="chip">"Stack-Chan, ${esc(a)} <b>${esc(b)}</b>"</span>`).join('')}</div>
           <p class="small faint mt">Primeiro chame o robô pela palavra de ativação, como sempre.</p>
         </section>
       </div>
+      <section class="card flush">
+          <div class="card-head pad-head"><h2>${icon('activity', 18)}Agora há pouco</h2></div>
+          <div class="list feed" data-feed>${act.entries.length ? act.entries.map((e) => activityRow(e)).join('') : '<div class="empty">Nada por aqui ainda.</div>'}</div>
+          <div class="item"><a href="#/atividade" class="small">Ver toda a atividade ${icon('arrow', 14)}</a></div>
+      </section>
     </div>`;
-
-  if (status.spotify.connected) loadMiniPlayer($('[data-now]', view)).catch(() => {});
 
   cleanup(on('activity', (e) => {
     const feed = $('[data-feed]', view);
@@ -455,240 +447,6 @@ function weatherCard(w) {
   return `<div class="card-head"><h2>${icon('cloud', 18)}Clima</h2><span class="small muted ellipsis">${esc(f.place)}</span></div>
     <div class="weather-now"><span class="emoji">${esc(f.current.emoji)}</span><div><div class="temp">${f.current.temperature}°</div><div class="muted small">${esc(f.current.text)} · sensação ${f.current.feelsLike}°</div></div></div>
     <div class="days">${f.days.map((d, i) => `<div class="day">${esc(names[i] ?? new Date(`${d.date}T12:00`).toLocaleDateString('pt-BR', { weekday: 'short' }))}<span class="e">${esc(d.emoji)}</span><b>${d.max}°</b> ${d.min}°<br>${icon('cloud', 11)} ${d.rainChance}%</div>`).join('')}</div>`;
-}
-
-function spotifyMiniPlaceholder(sp) {
-  if (!sp.connected) {
-    return `<div class="card-head"><h2>${icon('spotify', 18)}Spotify</h2></div>
-      <div class="empty"><p>${sp.configured ? 'Conecte sua conta para tocar nos aparelhos da casa.' : 'Ligue o Spotify para pedir músicas por voz em qualquer aparelho da família.'}</p><a class="btn sm spotify" href="#/spotify">${sp.configured ? 'Conectar' : 'Configurar'}</a></div>`;
-  }
-  return `<div class="card-head"><h2>${icon('spotify', 18)}Tocando agora</h2></div><div class="skeleton"></div>`;
-}
-
-async function loadMiniPlayer(box) {
-  const sp = await api('GET', '/api/spotify');
-  box.innerHTML = `<div class="card-head"><h2>${icon('spotify', 18)}Tocando agora</h2><a class="small" href="#/spotify">Abrir</a></div>${nowPlaying(sp, true)}`;
-  bindPlayer(box, () => loadMiniPlayer(box));
-}
-
-/* ================================== Spotify ================================= */
-
-const deviceIcon = (type) => ({ smartphone: 'phone', computer: 'computer', tv: 'tv' })[String(type).toLowerCase()] ?? 'speaker';
-
-function nowPlaying(sp, compact = false) {
-  const p = sp.playback;
-  if (!p || !p.item) {
-    return `<div class="now"><div class="cover">${icon('music', 30)}</div><div class="grow"><b>Nada tocando</b><p class="small muted">Peça ao Stack-Chan: "toca Galinha Pintadinha na sala".</p></div></div>`;
-  }
-  const t = p.item;
-  const img = t.album?.images?.[1]?.url || t.album?.images?.[0]?.url;
-  const pct = t.duration_ms ? Math.min(100, Math.round(((p.progress_ms || 0) / t.duration_ms) * 100)) : 0;
-  return `<div class="now">
-    ${img ? `<img class="cover" src="${esc(img)}" alt="">` : `<div class="cover">${icon('music', 30)}</div>`}
-    <div class="grow">
-      <div class="title ellipsis"><b>${esc(t.name)}</b></div>
-      <div class="small muted ellipsis">${esc(t.artists.map((a) => a.name).join(', '))}</div>
-      <div class="tiny faint ellipsis">${icon(deviceIcon(p.device?.type), 12)} ${esc(p.device?.name ?? '')}</div>
-      ${compact ? '' : `<div class="progress"><i data-w="${pct}"></i></div>`}
-      <div class="controls">
-        <button class="btn icon round sm" data-ctl="previous" aria-label="Anterior">${icon('prev', 16)}</button>
-        <button class="btn icon round primary" data-ctl="${p.is_playing ? 'pause' : 'resume'}" aria-label="${p.is_playing ? 'Pausar' : 'Tocar'}">${icon(p.is_playing ? 'pause' : 'play', 18)}</button>
-        <button class="btn icon round sm" data-ctl="next" aria-label="Próxima">${icon('next', 16)}</button>
-      </div>
-    </div>
-  </div>`;
-}
-
-function bindPlayer(root, reload) {
-  applyWidths(root);
-  $$('[data-ctl]', root).forEach((b) => {
-    b.onclick = () =>
-      busy(b, async () => {
-        await api('POST', '/api/spotify/control', { action: b.dataset.ctl });
-        setTimeout(reload, 600);
-      }).catch(fail);
-  });
-}
-
-PAGES.spotify = async (view, params, cleanup) => {
-  const result = params.get('result');
-  if (result) {
-    history.replaceState(null, '', '#/spotify');
-    if (result === 'ok') toast('Spotify conectado!');
-    else toast(`Spotify: ${result}`, 'bad');
-  }
-  const sp = await api('GET', '/api/spotify');
-
-  if (!sp.configured) {
-    view.innerHTML = `${head('Spotify', 'Peça músicas por voz e escolha em qual aparelho da casa tocar.')}
-      <div class="grid grid-2">
-        <section class="card stack">
-          <h2>Ligar o Spotify (uma vez só)</h2>
-          <ol class="steps">
-            <li>Abra o <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">painel de desenvolvedor do Spotify</a> com a sua conta e clique em <b>Create app</b>.</li>
-            <li>Nome e descrição: qualquer um (por exemplo "Stack-Chan"). Em <b>Redirect URI</b>, cole exatamente:
-              <div class="copy"><code>${esc(sp.redirectUri)}</code><button class="btn sm icon" data-copy="${esc(sp.redirectUri)}" aria-label="Copiar">${icon('copy', 16)}</button></div></li>
-            <li>Em <b>Which API/SDKs</b>, marque <b>Web API</b>, aceite os termos e salve.</li>
-            <li>Copie o <b>Client ID</b> do app e cole aqui:
-              <form class="row mt" data-cfg><input class="input mono" name="clientId" placeholder="32 caracteres" maxlength="32" required><button class="btn primary">Salvar</button></form></li>
-          </ol>
-        </section>
-        <section class="stack">
-          <div class="callout">${icon('info')}<div>Não precisa de senha nem de chave secreta: o login usa PKCE e os tokens ficam criptografados no servidor.</div></div>
-          <div class="callout warn">${icon('alert')}<div>Desde 2026 o Spotify exige <b>Premium</b> do dono do app para controlar a reprodução, e libera até 5 usuários por app.</div></div>
-          <div class="callout">${icon('speaker')}<div>O Spotify só toca em aparelhos <b>Spotify Connect</b> (celular, computador, Echo, TV, caixas). O alto-falante do robô não é um deles: para músicas no próprio Stack-Chan, use a página <a href="#/musicas">Músicas</a>.</div></div>
-        </section>
-      </div>`;
-    bindCopy(view);
-    $('[data-cfg]', view).onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        await api('PUT', '/api/spotify/config', { clientId: e.target.clientId.value.trim() });
-        toast('Client ID salvo');
-        navigate();
-      } catch (err) {
-        fail(err);
-      }
-    };
-    return;
-  }
-
-  if (!sp.connected) {
-    view.innerHTML = `${head('Spotify')}
-      <section class="card empty">
-        ${icon('spotify', 44)}
-        <h2>Conecte sua conta</h2>
-        <p>Você vai para o site do Spotify, autoriza, e volta para cá.</p>
-        <button class="btn spotify" data-connect>${icon('spotify', 18)}Conectar ao Spotify</button>
-        <button class="btn ghost sm" data-reset>Trocar Client ID</button>
-      </section>`;
-    $('[data-connect]', view).onclick = (e) =>
-      busy(e.currentTarget, async () => (location.href = (await api('POST', '/api/spotify/connect')).url)).catch(fail);
-    $('[data-reset]', view).onclick = async () => {
-      await api('PUT', '/api/spotify/config', { clientId: '' }).catch(fail);
-      navigate();
-    };
-    return;
-  }
-
-  const devices = sp.devices ?? [];
-  view.innerHTML = `${head('Spotify', `Conta: <b>${esc(sp.user?.name ?? '')}</b> · modo infantil ${sp.kidMode ? '<span class="badge ok">ligado</span>' : '<span class="badge warn">desligado</span>'}`,
-    `<button class="btn sm" data-refresh>${icon('refresh', 16)}Atualizar</button><button class="btn sm danger" data-disconnect>Desconectar</button>`)}
-    ${sp.error ? `<div class="callout warn mt">${icon('alert')}<div>${esc(sp.error)}</div></div>` : ''}
-    <div class="grid grid-2">
-      <section class="card" data-player>
-        <div class="card-head"><h2>Tocando agora</h2></div>
-        <div data-now>${nowPlaying(sp)}</div>
-        <div class="sep"></div>
-        <label class="field">Volume <span class="hint">máximo permitido: ${sp.maxVolume}% (em Ajustes)</span>
-          <input type="range" min="0" max="${sp.maxVolume}" value="${Math.min(sp.playback?.device?.volume_percent ?? 50, sp.maxVolume)}" data-volume></label>
-      </section>
-      <section class="card flush">
-        <div class="card-head pad-head"><h2>Aparelhos da família</h2><span class="badge">${devices.length}</span></div>
-        <div class="list">
-          ${devices.length ? devices.map((d) => `<div class="item">
-            <div class="ico ${d.is_active ? 'mint' : ''}">${icon(deviceIcon(d.type), 18)}</div>
-            <div class="grow"><div class="title ellipsis">${esc(d.name)}</div><div class="tiny faint device-type">${esc(d.type)}${d.is_active ? ' · tocando aqui' : ''}${d.is_restricted ? ' · não controlável' : ''}</div></div>
-            <div class="actions">
-              <button class="btn sm icon ${sp.defaultDevice === d.name ? 'primary' : 'ghost'}" data-default="${esc(d.name)}" title="Aparelho padrão para pedidos por voz" aria-label="Aparelho padrão">${icon('star', 16)}</button>
-              ${d.is_active || d.is_restricted || !d.id ? '' : `<button class="btn sm" data-transfer="${esc(d.id)}">Tocar aqui</button>`}
-            </div></div>`).join('') : '<div class="empty"><p>Nenhum aparelho online.</p><p class="small faint">Abra o Spotify no celular, computador ou caixa de som e atualize.</p></div>'}
-        </div>
-        <div class="item tiny faint">${icon('robot', 14)} O Stack-Chan não aparece aqui: o Spotify só toca em aparelhos Spotify Connect. Músicas no robô ficam em <a href="#/musicas">Músicas</a>.</div>
-      </section>
-    </div>
-    <section class="card mt-lg">
-      <div class="card-head"><h2>${icon('search', 18)}Buscar e tocar</h2>
-        <select class="input" data-target aria-label="Aparelho">${devices.filter((d) => d.id && !d.is_restricted).map((d) => `<option value="${esc(d.id)}" ${d.is_active ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
-      </div>
-      <input class="input" type="search" placeholder="Música, artista, álbum ou playlist" data-q>
-      <div data-results class="mt"></div>
-    </section>`;
-
-  const reloadNow = async () => {
-    const fresh = await api('GET', '/api/spotify').catch(() => null);
-    if (!fresh) return;
-    const box = $('[data-now]', view);
-    if (box) {
-      box.innerHTML = nowPlaying(fresh);
-      bindPlayer(box, reloadNow);
-    }
-  };
-  bindPlayer($('[data-now]', view), reloadNow);
-  const poll = setInterval(reloadNow, 8000);
-  cleanup(() => clearInterval(poll));
-
-  $('[data-refresh]', view).onclick = navigate;
-  $('[data-disconnect]', view).onclick = async () => {
-    if (!(await confirmDialog('O robô deixa de controlar o Spotify até você conectar de novo.', 'Desconectar'))) return;
-    await api('POST', '/api/spotify/disconnect').catch(fail);
-    navigate();
-  };
-  $('[data-volume]', view).onchange = (e) =>
-    api('POST', '/api/spotify/volume', { percent: Number(e.target.value) }).then((r) => toast(`Volume ${r.volume}%`)).catch(fail);
-  $$('[data-transfer]', view).forEach((b) => {
-    b.onclick = () =>
-      busy(b, async () => {
-        const r = await api('POST', '/api/spotify/transfer', { deviceId: b.dataset.transfer });
-        toast(`Tocando em ${r.device}`);
-        setTimeout(navigate, 800);
-      }).catch(fail);
-  });
-  $$('[data-default]', view).forEach((b) => {
-    b.onclick = async () => {
-      const name = sp.defaultDevice === b.dataset.default ? '' : b.dataset.default;
-      await api('PATCH', '/api/settings', { spotifyDefaultDevice: name }).catch(fail);
-      toast(name ? `"${name}" é o aparelho padrão` : 'Sem aparelho padrão');
-      navigate();
-    };
-  });
-
-  let timer;
-  const results = $('[data-results]', view);
-  $('[data-q]', view).oninput = (e) => {
-    clearTimeout(timer);
-    const q = e.target.value.trim();
-    if (q.length < 2) return void (results.innerHTML = '');
-    timer = setTimeout(async () => {
-      results.innerHTML = '<div class="bar indeterminate"><i></i></div>';
-      try {
-        const r = await api('GET', `/api/spotify/search?q=${encodeURIComponent(q)}`);
-        const row = (img, title, sub, uri, blocked, kind) => `<div class="item">
-          <div class="ico">${img ? `<img src="${esc(img)}" alt="">` : icon(kind === 'track' ? 'music' : 'book', 18)}</div>
-          <div class="grow"><div class="title ellipsis">${esc(title)} ${blocked ? '<span class="badge bad">explícita</span>' : ''}</div><div class="tiny faint ellipsis">${esc(sub)}</div></div>
-          <button class="btn sm icon round ${blocked ? '' : 'primary'}" data-play="${esc(uri)}" ${blocked ? 'disabled title="Bloqueada pelo modo infantil"' : ''} aria-label="Tocar">${icon('play', 14)}</button></div>`;
-        results.innerHTML = `<div class="list card flush">${[
-          ...r.tracks.map((t) => row(t.image, t.name, `${t.artists} · ${fmtDur(t.durationMs / 1000)}`, t.uri, t.blocked, 'track')),
-          ...r.albums.slice(0, 4).map((a) => row(a.image, a.name, `Álbum · ${a.artists}`, a.uri, false, 'album')),
-          ...r.playlists.slice(0, 4).map((p) => row(p.image, p.name, `Playlist · ${p.owner}`, p.uri, false, 'playlist')),
-        ].join('') || '<div class="empty">Nada encontrado.</div>'}</div>`;
-        $$('[data-play]', results).forEach((b) => {
-          b.onclick = () =>
-            busy(b, async () => {
-              const deviceId = $('[data-target]', view)?.value;
-              const res = await api('POST', '/api/spotify/play', { uri: b.dataset.play, deviceId });
-              toast(`Tocando em ${res.device}`);
-              setTimeout(reloadNow, 900);
-            }).catch(fail);
-        });
-      } catch (err) {
-        results.innerHTML = `<p class="form-error">${esc(err.message)}</p>`;
-      }
-    }, 350);
-  };
-};
-
-function bindCopy(root) {
-  $$('[data-copy]', root).forEach((b) => {
-    b.onclick = async () => {
-      try {
-        await navigator.clipboard.writeText(b.dataset.copy);
-        toast('Copiado');
-      } catch {
-        toast('Não deu para copiar; selecione o texto', 'bad');
-      }
-    };
-  });
 }
 
 /* ================================== Stories ================================= */
@@ -805,7 +563,7 @@ PAGES.musicas = async (view, _params, cleanup) => {
         <section class="stack">
           <div class="callout">${icon('robot')}<div>Diga <b>"Stack-Chan, toca <i>nome da música</i> no robô"</b>. Ela começa assim que ele terminar de falar; para parar, é só falar com ele.</div></div>
           <div class="callout">${icon('sparkle')}<div>Cada envio é convertido uma vez para o único formato que o robô toca com segurança (Opus 16 kHz, mono), com volume equalizado e graves cortados para o alto-falante pequeno.</div></div>
-          <div class="callout warn">${icon('alert')}<div>Tocar no alto-falante do robô precisa do firmware novo (ferramenta <code>self.gateway.play_audio</code>). Use músicas que você comprou ou tem direito de usar.</div></div>
+          <div class="callout">${icon('info')}<div>Na primeira vez o robô baixa a música para o cartão SD; depois ela toca direto do cartão. Use músicas que você comprou ou tem direito de usar.</div></div>
         </section>
       </div>
       <section class="card flush mt-lg">
@@ -1007,7 +765,7 @@ function addServer() {
 
 /* =================================== Tools ================================== */
 
-const SOURCE_NAMES = { diagnostics: 'Diagnóstico', stories: 'Histórias', music: 'Música', spotify: 'Controle do Spotify', weather: 'Clima' };
+const SOURCE_NAMES = { diagnostics: 'Diagnóstico', stories: 'Histórias', music: 'Música', weather: 'Clima' };
 
 PAGES.ferramentas = async (view) => {
   const data = await api('GET', '/api/tools');
@@ -1091,7 +849,6 @@ PAGES.atividade = async (view, _params, cleanup) => {
 
 PAGES.ajustes = async (view) => {
   const [s, { sessions }] = await Promise.all([api('GET', '/api/settings'), api('GET', '/api/sessions')]);
-  const TARGETS = [['auto', 'Automático'], ['robot', 'Robô primeiro'], ['spotify', 'Spotify primeiro']];
   view.innerHTML = `${head('Ajustes')}
     <div class="grid grid-2">
       <section class="card stack">
@@ -1100,17 +857,6 @@ PAGES.ajustes = async (view) => {
           <label class="field">Cidade (para o clima)<div class="row"><input class="input" name="city" value="${esc(s.homeCity)}" placeholder="São Paulo"><button class="btn">Salvar</button></div>
           <span class="hint">${s.home ? `Encontrada: ${esc(s.home.name)}` : 'Ainda não definida'}</span></label>
         </form>
-        <div class="sep"></div>
-        <h2>${icon('music', 18)}"Toca…" sem dizer onde</h2>
-        <div class="segmented" data-target>${TARGETS.map(([k, l]) => `<button data-v="${k}" class="${s.musicDefaultTarget === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-        <p class="small muted">Automático: se a música estiver na biblioteca do robô, toca nele; senão, no Spotify (aparelho padrão).</p>
-      </section>
-      <section class="card stack">
-        <h2>${icon('spotify', 18)}Spotify e crianças</h2>
-        <div class="row between"><div><b>Modo infantil</b><p class="small muted">Nunca tocar músicas explícitas (nem álbuns e playlists que tenham alguma).</p></div>
-          <label class="switch"><input type="checkbox" data-kid ${s.kidMode ? 'checked' : ''}><span></span></label></div>
-        <label class="field">Volume máximo pelo robô: <b data-volv>${s.spotifyMaxVolume}%</b><input type="range" min="10" max="100" step="5" value="${s.spotifyMaxVolume}" data-vol></label>
-        <p class="small muted">Aparelho padrão: <b>${esc(s.spotifyDefaultDevice || 'o que estiver tocando')}</b> · troque na página Spotify (estrela).</p>
       </section>
       <section class="card stack">
         <h2>${icon('shield', 18)}Segurança</h2>
@@ -1136,17 +882,6 @@ PAGES.ajustes = async (view) => {
       .then((r) => (toast(r.home ? `Cidade: ${r.home.name}` : 'Cidade removida'), navigate()))
       .catch(fail);
   };
-  $('[data-target]', view).onclick = (e) => {
-    const b = e.target.closest('[data-v]');
-    if (!b) return;
-    $$('[data-v]', view).forEach((x) => x.classList.toggle('on', x === b));
-    api('PATCH', '/api/settings', { musicDefaultTarget: b.dataset.v }).then(() => toast('Salvo')).catch(fail);
-  };
-  $('[data-kid]', view).onchange = (e) =>
-    api('PATCH', '/api/settings', { kidMode: e.target.checked }).then(() => toast(e.target.checked ? 'Modo infantil ligado' : 'Modo infantil desligado')).catch(fail);
-  $('[data-vol]', view).oninput = (e) => ($('[data-volv]', view).textContent = `${e.target.value}%`);
-  $('[data-vol]', view).onchange = (e) =>
-    api('PATCH', '/api/settings', { spotifyMaxVolume: Number(e.target.value) }).then(() => toast('Volume máximo salvo')).catch(fail);
   $('[data-pass]', view).onsubmit = (e) => {
     e.preventDefault();
     const f = e.target;

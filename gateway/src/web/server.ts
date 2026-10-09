@@ -121,7 +121,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self' data: https://i.scdn.co https://*.spotifycdn.com",
+  "img-src 'self' data:",
   "media-src 'self' blob:",
   "connect-src 'self'",
   "font-src 'self'",

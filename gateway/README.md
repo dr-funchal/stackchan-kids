@@ -12,7 +12,7 @@ Robô (CoreS3) ──(igual hoje)──► xiaozhi.me  (voz→texto, LLM, texto�
      │ baixa músicas                 │ WebSocket de SAÍDA (MCP): o LLM vê e chama as ferramentas do gateway
      ▼                               │
 https://m5.pulpfy.com ── nginx ──► Gateway (Docker, 127.0.0.1:3150)
-                                     ├─ módulos: diagnóstico, histórias, música, Spotify, clima
+                                     ├─ módulos: histórias, música (no robô), clima, diagnóstico
                                      ├─ servidores MCP externos ligados pelo painel
                                      └─ painel "Stack-Chan Home" (login único)
 ```
@@ -27,10 +27,9 @@ https://m5.pulpfy.com ── nginx ──► Gateway (Docker, 127.0.0.1:3150)
 
 | Página | O que faz |
 |---|---|
-| Início | Conexão com o xiaozhi.me, última vez que o robô usou o gateway, contadores, "tocando agora" do Spotify, clima, atividade ao vivo, frases para as crianças experimentarem |
+| Início | Conexão com o xiaozhi.me, última vez que o robô usou o gateway, contadores, clima, atividade ao vivo, frases para as crianças experimentarem |
 | Histórias | Criar, editar (ou importar `.txt`), pré-visualizar as páginas como o robô lê, apagar |
 | Músicas | Enviar MP3/M4A/OGG/WAV/FLAC (até 60 MB): o gateway converte para o formato do robô e guarda |
-| Spotify | Configurar o app (passo a passo), conectar a conta, aparelhos, tocar/transferir, buscar, volume |
 | Conexões MCP | Adicionar servidores MCP da internet (HTTP streamable ou SSE), com cabeçalhos de autenticação; cada ferramenta começa desligada |
 | Ferramentas | Ligar/desligar módulos e ferramentas; ver a descrição que a IA lê. Mudanças chegam ao robô em ~3 s |
 | Atividade | Tudo o que o robô pediu e o que mudou no painel (filtros); não grava o que as crianças falam |
@@ -41,36 +40,25 @@ https://m5.pulpfy.com ── nginx ──► Gateway (Docker, 127.0.0.1:3150)
 | Ferramenta | Módulo | Para quê |
 |---|---|---|
 | `library_search`, `library_read_page` | stories | biblioteca online; sem `page`, devolve a próxima página e nunca pula |
-| `family_music` | music | "toca X": robô (biblioteca própria) ou Spotify (aparelho da família). Não pode se chamar `play_music`: o xiaozhi.me já tem uma ferramenta com esse nome |
-| `spotify` | spotify | pausar, continuar, pular, volume, aparelhos, transferir, "o que está tocando" |
+| `family_music` | music | "toca X": músicas da biblioteca da família, no alto-falante do robô. Não pode se chamar `play_music`: o xiaozhi.me já tem uma ferramenta com esse nome |
 | `weather_forecast` | weather | tempo agora e previsão (Open-Meteo, sem chave) |
 | `gateway_secret_word` | diagnostics | teste de ponta a ponta (desligado por padrão) |
 | `ext_<servidor>_<ferramenta>` | MCP externo | o que você ligar em Conexões MCP |
 
 Cada ferramenta pesa em toda fala do robô (a descrição vai junto para a IA do xiaozhi.me): poucas, com descrições
-curtas. Com 12 ferramentas as histórias longas engasgavam; com 5 ficaram fluidas (2026-10-09).
+curtas. Com 12 ferramentas as histórias longas engasgavam; com 5 ficaram fluidas (2026-10-09); sem o Spotify, são 4.
 
 No robô (firmware): `self.gateway.play_audio(code, name)` baixa a música para o cartão SD (fica em cache) e toca com
 o player de histórias quando a conversa termina. Falar com o robô para a música.
 
-## Música: robô × Spotify
+## Música
 
-- **No alto-falante do robô:** só a biblioteca enviada pelo painel. Cada arquivo é convertido uma vez para
+- Só a biblioteca enviada pelo painel, tocando no alto-falante do robô. Cada arquivo é convertido uma vez para
   Ogg Opus mono 16 kHz, SILK banda larga, quadros de 60 ms (o único formato que o decodificador do robô aguenta, ver
   `CLAUDE.md`). O gateway confere pacote a pacote e remonta o arquivo sem o último pacote curto que o `opusenc` gera.
   Volume equalizado e graves cortados para o alto-falante pequeno.
-- **Spotify:** o Spotify só toca em aparelhos Spotify Connect certificados (celular, computador, Echo, TV, caixas).
-  O robô não pode ser um deles de forma legítima (exige o programa comercial de parceiros e certificação; clientes
-  não oficiais violam os termos). O robô vira o controle remoto: "toca Galinha Pintadinha na sala".
-- Spotify em 2026: o dono do app precisa de **Premium**; até 5 usuários por app; busca limitada a 10 itens.
-- Modo infantil (padrão): nunca toca faixas explícitas, nem álbuns/playlists que contenham alguma. Volume máximo
-  configurável.
-
-### Ligar o Spotify
-
-Siga a página **Spotify** do painel: criar app em https://developer.spotify.com/dashboard, Redirect URI
-`https://m5.pulpfy.com/spotify/callback`, marcar Web API, colar o Client ID. Login com PKCE (sem segredo no servidor);
-o refresh token fica criptografado.
+- O Spotify foi removido em 2026-10-09: ele só toca em aparelhos Spotify Connect certificados, nunca no próprio robô,
+  e controlar outros aparelhos não era útil para a família.
 
 ## Segurança
 
@@ -78,7 +66,7 @@ o refresh token fica criptografado.
   guardada só como hash; 5 erros por endereço = bloqueio de 15 min (+ limite global e limite no nginx).
 - CSRF: toda mudança exige a origem `https://m5.pulpfy.com`. CSP estrita (sem scripts/estilos inline), HSTS,
   anti-frame.
-- Segredos (token do Spotify, cabeçalhos dos MCPs) criptografados com AES-256-GCM (`SECRETS_KEY`).
+- Segredos (cabeçalhos dos MCPs externos) criptografados com AES-256-GCM (`SECRETS_KEY`).
 - MCPs externos: só endereços públicos (bloqueia localhost, redes privadas, metadados de nuvem), nunca executa
   programas; ferramentas externas começam desligadas.
 - Uploads: só contêineres de áudio reconhecidos pelos primeiros bytes (uma playlist de texto poderia fazer o ffmpeg
@@ -120,9 +108,9 @@ state/activity.json     últimas 300 atividades
 | Fase | O que | Situação |
 |---|---|---|
 | 1-5 | Arquitetura, gateway, registro de ferramentas, histórias | validado com o robô (palavra secreta, história de 3 páginas) |
-| Painel | Stack-Chan Home com login, histórias, músicas, Spotify, MCPs, ferramentas, atividade, ajustes | no ar |
-| 6 | Player no robô (`self.gateway.play_audio`) | firmware compilado; falta gravar no robô |
-| 7 | Música: biblioteca própria no robô + Spotify nos aparelhos da família | no ar (robô depende da fase 6) |
+| Painel | Stack-Chan Home com login, histórias, músicas, MCPs, ferramentas, atividade, ajustes | no ar |
+| 6 | Player no robô (`self.gateway.play_audio`) | gravado no robô em 2026-10-09 |
+| 7 | Música: biblioteca própria no robô | no ar (Spotify removido em 2026-10-09) |
 | 8 | Outros MCPs | pelo painel, sem código |
 
 ## Riscos conhecidos

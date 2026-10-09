@@ -14,7 +14,6 @@ import { MODULES } from '../src/modules/index.ts';
 import { ToolRegistry } from '../src/registry/registry.ts';
 import { ExternalMcp } from '../src/services/external-mcp.ts';
 import { MusicLibrary } from '../src/services/music-library.ts';
-import { SpotifyService } from '../src/services/spotify.ts';
 import { WeatherService } from '../src/services/weather.ts';
 import { defaultSettings } from '../src/settings.ts';
 import type { Settings } from '../src/settings.ts';
@@ -45,14 +44,13 @@ before(async () => {
   await activity.load();
   music = new MusicLibrary(dir, silentLogger);
   await music.load();
-  const spotify = new SpotifyService({ settings, secrets, publicUrl: ORIGIN, log: silentLogger });
   const weather = new WeatherService(settings);
   const registry = new ToolRegistry({ log: silentLogger, defaultTimeoutMs: 2000, allowRestricted: false });
-  for (const m of MODULES) registry.register(m.build({ dataDir: dir, timezone: cfg.timezone, settings, music, spotify, weather }));
+  for (const m of MODULES) registry.register(m.build({ dataDir: dir, timezone: cfg.timezone, settings, music, weather }));
   const external = new ExternalMcp({ settings, secrets, registry, log: silentLogger });
   const router = new Router();
   registerApi(router, {
-    cfg, log: silentLogger, auth, settings, activity, registry, music, spotify, weather, external,
+    cfg, log: silentLogger, auth, settings, activity, registry, music, weather, external,
     connection: () => ({ state: 'connected', since: new Date().toISOString() }),
     applyPolicy: () => {},
     startedAt: Date.now(),
@@ -112,7 +110,7 @@ test('API needs a session; login checks origin and password and sets a strict co
   cookie = set.split(';')[0]!;
   const status = await (await req('GET', '/api/status')).json();
   assert.equal(status.stories, 1);
-  assert.equal(status.tools.exposed, 6);
+  assert.equal(status.tools.exposed, 5);
 });
 
 test('state changes without the panel origin are refused (CSRF)', async () => {
@@ -169,16 +167,15 @@ test('robot audio links are one-time capabilities', async () => {
   assert.equal((await req('GET', `/a/${'x'.repeat(20)}`)).status, 404);
 });
 
-test('tools and settings round trip', async () => {
+test('tools can be switched off and Spotify is gone', async () => {
   const tools = await (await req('GET', '/api/tools')).json();
-  assert.equal(tools.modules.length, 5);
-  assert.equal((await req('PATCH', '/api/settings', { kidMode: false, spotifyMaxVolume: 500, musicDefaultTarget: 'robot' })).status, 200);
+  assert.deepEqual(tools.modules.map((m: { name: string }) => m.name), ['diagnostics', 'stories', 'music', 'weather']);
+  assert.ok(!tools.tools.some((t: { name: string }) => /spotify/.test(t.name)));
+  assert.equal((await req('PATCH', '/api/tools', { disabledTools: ['weather_forecast'] })).status, 200);
+  assert.equal((await req('GET', '/api/spotify')).status, 404);
+  assert.equal((await req('GET', '/spotify/callback?code=x&state=y')).status, 404);
   const s = await (await req('GET', '/api/settings')).json();
-  assert.equal(s.kidMode, false);
-  assert.equal(s.spotifyMaxVolume, 100);
-  assert.equal(s.musicDefaultTarget, 'robot');
-  const sp = await (await req('PUT', '/api/spotify/config', { clientId: 'not-hex' })).json();
-  assert.match(sp.error, /32/);
+  assert.equal(s.kidMode, undefined);
 });
 
 test('logout invalidates the session', async () => {

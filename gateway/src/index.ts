@@ -10,7 +10,6 @@ import { MODULES } from './modules/index.ts';
 import { ToolRegistry } from './registry/registry.ts';
 import { ExternalMcp } from './services/external-mcp.ts';
 import { MusicLibrary } from './services/music-library.ts';
-import { SpotifyService } from './services/spotify.ts';
 import { WeatherService } from './services/weather.ts';
 import { defaultSettings } from './settings.ts';
 import type { Settings } from './settings.ts';
@@ -37,11 +36,10 @@ const activity = new ActivityFeed(join(stateDir, 'activity.json'));
 await activity.load();
 const music = new MusicLibrary(cfg.dataDir, log);
 await music.load();
-const spotify = new SpotifyService({ settings, secrets, publicUrl: cfg.publicUrl, log });
 const weather = new WeatherService(settings);
 
 const registry = new ToolRegistry({ log, defaultTimeoutMs: cfg.toolTimeoutMs, allowRestricted: cfg.allowRestricted });
-const ctx = { dataDir: cfg.dataDir, timezone: cfg.timezone, settings, music, spotify, weather };
+const ctx = { dataDir: cfg.dataDir, timezone: cfg.timezone, settings, music, weather };
 for (const mod of MODULES) registry.register(mod.build(ctx));
 
 // Panel switches win over the MODULES env default
@@ -60,7 +58,7 @@ registry.onCall((e) =>
   activity.add({ kind: 'tool', title: e.summary ?? e.tool, detail: `${e.tool} · ${e.ms} ms`, ok: e.ok }),
 );
 
-if (!cfg.secretsKey) log.warn('SECRETS_KEY not set: Spotify and external MCP credentials cannot be stored');
+if (!cfg.secretsKey) log.warn('SECRETS_KEY not set: credentials of external MCP servers cannot be stored');
 if (!auth.enabled) log.warn('ADMIN_EMAIL / ADMIN_PASSWORD_HASH not set: the panel login is disabled');
 log.info('stackchan-gateway starting', { version: GATEWAY_VERSION, tools: registry.size });
 status.start();
@@ -77,7 +75,6 @@ const { broadcast } = registerApi(router, {
   activity,
   registry,
   music,
-  spotify,
   weather,
   external,
   connection: () => connection?.info ?? standby,

@@ -19,7 +19,7 @@ export interface Config {
   adminEmail: string;
   /** scrypt:N:r:p:salt:hash (see scripts/hash-password.ts). The plain password is never stored. */
   adminPasswordHash: string;
-  /** 32 random bytes in base64: encrypts Spotify tokens and API keys at rest. */
+  /** 32 random bytes in base64: encrypts the API keys of external MCP servers at rest. */
   secretsKey: string | undefined;
   maxUploadMb: number;
   reconnect: { initialMs: number; maxMs: number };
@@ -64,7 +64,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     endpoint: endpoint ? checkEndpoint(endpoint) : undefined,
     enabled: bool(env.GATEWAY_ENABLED, true, 'GATEWAY_ENABLED'),
-    modules: (env.MODULES ?? 'stories,music,spotify,weather')
+    modules: (env.MODULES ?? 'stories,music,weather')
       .split(',')
       .map((m) => m.trim())
       .filter(Boolean),

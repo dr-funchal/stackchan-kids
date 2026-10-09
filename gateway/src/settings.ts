@@ -25,13 +25,6 @@ export interface Settings {
   disabledTools: string[];
   homeCity: string;
   home?: { name: string; latitude: number; longitude: number; timezone: string };
-  /** Spotify: never play explicit content (tracks, and albums/playlists that contain any). */
-  kidMode: boolean;
-  spotifyClientId: string;
-  spotifyDefaultDevice: string;
-  spotifyMaxVolume: number;
-  /** Where "toca X" plays when nobody says where. */
-  musicDefaultTarget: 'auto' | 'robot' | 'spotify';
   external: ExternalServer[];
 }
 
@@ -39,11 +32,6 @@ export const defaultSettings = (): Settings => ({
   modules: {},
   disabledTools: [],
   homeCity: '',
-  kidMode: true,
-  spotifyClientId: '',
-  spotifyDefaultDevice: '',
-  spotifyMaxVolume: 70,
-  musicDefaultTarget: 'auto',
   external: [],
 });
 
