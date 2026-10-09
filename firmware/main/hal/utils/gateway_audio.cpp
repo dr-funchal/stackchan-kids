@@ -24,7 +24,7 @@ static const char* TAG = "GatewayAudio";
 static constexpr const char* kAudioBase = "https://m5.pulpfy.com/a/";
 static constexpr size_t kMaxBytes       = 20 * 1024 * 1024;  // ~110 min at the gateway's 24 kbps
 static constexpr size_t kChunk          = 4096;
-static constexpr int kMaxDmaWaits       = 200;  // x 50 ms: give up rather than wait forever for DMA memory
+static constexpr uint32_t kDmaWaitMs   = 10000;  // Give up rather than wait forever for DMA memory
 
 namespace {
 std::atomic<bool> _busy{false};
@@ -88,8 +88,8 @@ static bool download(const std::string& url, const std::string& path)
         return false;
     }
 
-    FILE* f;
-    {
+    FILE* f = nullptr;
+    if (sd_card::waitDmaHeadroom(8 * 1024, kDmaWaitMs)) {
         sd_card::BusGuard guard;
         f = fopen(part.c_str(), "wb");
     }
@@ -100,11 +100,7 @@ static bool download(const std::string& url, const std::string& path)
         if (n <= 0) {
             break;
         }
-        int waits = 0;
-        while (!sd_card::hasDmaHeadroom() && waits++ < kMaxDmaWaits) {
-            vTaskDelay(pdMS_TO_TICKS(50));  // FATFS needs internal DMA memory for every SD transfer
-        }
-        if (waits > kMaxDmaWaits) {
+        if (!sd_card::waitDmaHeadroom(8 * 1024, kDmaWaitMs)) {  // FATFS needs internal DMA memory for every transfer
             break;
         }
         size_t written;
@@ -137,12 +133,13 @@ static bool download(const std::string& url, const std::string& path)
 
 static void download_task(void* arg)
 {
-    std::unique_ptr<Job> job(static_cast<Job*>(arg));
-    if (download(std::string(kAudioBase) + job->code, story_path(job->base))) {
-        sd_diary::log("sistema", ("musica do gateway: " + job->base).c_str());
-        play(job->base);
-    }
-    job.reset();
+    {
+        std::unique_ptr<Job> job(static_cast<Job*>(arg));
+        if (download(std::string(kAudioBase) + job->code, story_path(job->base))) {
+            sd_diary::log("sistema", ("musica do gateway: " + job->base).c_str());
+            play(job->base);
+        }
+    }  // vTaskDeleteWithCaps never returns: every local must be gone before it
     _busy.store(false);
     vTaskDeleteWithCaps(nullptr);
 }

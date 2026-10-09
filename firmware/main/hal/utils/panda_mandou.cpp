@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -41,15 +42,17 @@ struct Game {
     int rounds  = 0;
 };
 
+// The game is touched by the tools (main task), the clock task, the sensors and screen taps (LVGL task)
+std::mutex _game_mutex;
 Game _game;
 std::atomic<bool> _active{false};
 
 // The armed challenge. Detectors run on other tasks, so the outcome is claimed with an atomic exchange
 std::atomic<int> _armed{(int)Action::None};
 std::atomic<uint32_t> _challenge_id{0};
-bool _panda_said     = true;
-std::string _color;  // Target color name for Action::Color
-uint32_t _deadline_ms = 0;
+std::atomic<bool> _panda_said{true};
+std::atomic<const char*> _color{""};  // Target color name for Action::Color (points into kColors)
+std::atomic<uint32_t> _deadline_ms{0};
 std::atomic<bool> _resolved{true};
 }  // namespace
 
@@ -58,6 +61,7 @@ bool panda_mandou::isActive()
     return _active.load();
 }
 
+// Callers hold _game_mutex
 static std::string current_player()
 {
     return _game.players.empty() ? std::string("todos") : _game.players[_game.turn].name;
@@ -199,27 +203,33 @@ static void resolve(Action done)
         show_swatch(nullptr);
     }
 
-    bool did_it  = done == wanted;
-    bool correct = _panda_said ? did_it : done == Action::None;
-    std::string who = current_player();
-    if (correct && !_game.players.empty()) {
-        _game.players[_game.turn].stars++;
-    }
-    _game.rounds++;
-    if (!_game.players.empty()) {
-        _game.turn = (_game.turn + 1) % _game.players.size();
+    bool panda_said = _panda_said.load();
+    bool did_it     = done == wanted;
+    bool correct    = panda_said ? did_it : done == Action::None;
+    std::string who, next;
+    {
+        std::lock_guard<std::mutex> lock(_game_mutex);
+        who = current_player();
+        if (correct && !_game.players.empty()) {
+            _game.players[_game.turn].stars++;
+        }
+        _game.rounds++;
+        if (!_game.players.empty()) {
+            _game.turn = (_game.turn + 1) % _game.players.size();
+        }
+        next = current_player();
     }
     react(correct);
 
     // Tell the AI, as if spoken. Rules explain this "(sensores: ...)" format
     std::string what;
     if (wanted == Action::Color) {
-        what = did_it ? "a camera viu algo " + _color : "a camera nao viu nada " + _color;
+        what = std::string(did_it ? "a camera viu algo " : "a camera nao viu nada ") + _color.load();
     } else {
         what = did_it ? "a crianca fez o comando" : "ninguem fez o comando";
     }
     std::string text = "(sensores: " + what + ". " + who + (correct ? " acertou" : " errou") +
-                       (_panda_said ? "" : ", era pegadinha") + ". Proximo: " + current_player() + ")";
+                       (panda_said ? "" : ", era pegadinha") + ". Proximo: " + next + ")";
     ESP_LOGI(TAG, "%s", text.c_str());
     sd_diary::log("panda-mandou", text.c_str());
     Application::GetInstance().SendUserText(text);
@@ -235,7 +245,7 @@ static void on_action(Action action)
     // Any action counts: doing the wrong thing on a trick still "falls for it", and a different action than
     // asked is just ignored on a real command
     Action wanted = (Action)_armed.load();
-    if (action == wanted || !_panda_said) {
+    if (action == wanted || !_panda_said.load()) {
         resolve(action == wanted ? action : wanted);
     }
 }
@@ -252,8 +262,9 @@ bool panda_mandou::onScreenTap()
 // Clock on the body LEDs + camera polling for color challenges
 static void challenge_task(void* arg)
 {
-    uint32_t id      = (uint32_t)(uintptr_t)arg;
-    uint32_t total   = _deadline_ms - GetHAL().millis();
+    uint32_t id       = (uint32_t)(uintptr_t)arg;
+    uint32_t deadline = _deadline_ms.load();
+    uint32_t total    = std::max<uint32_t>(1, deadline - GetHAL().millis());
     int last_lit     = -1;
     int matches      = 0;
     uint32_t next_cam = 0;
@@ -261,12 +272,12 @@ static void challenge_task(void* arg)
 
     while (!_resolved.load() && _challenge_id.load() == id) {
         uint32_t now = GetHAL().millis();
-        if ((int32_t)(now - _deadline_ms) >= 0) {
+        if ((int32_t)(now - deadline) >= 0) {
             resolve(Action::None);
             break;
         }
 
-        int lit = 1 + (int)((_deadline_ms - now) * 11 / total);
+        int lit = std::min(11, 1 + (int)((deadline - now) * 11 / total));
         if (lit != last_lit) {
             last_lit = lit;
             uint8_t r = lit > 5 ? 0 : 40, g = lit > 2 ? 30 : 0;
@@ -281,8 +292,8 @@ static void challenge_task(void* arg)
             if (camera->Capture() && camera->GetFrameFormat() == V4L2_PIX_FMT_RGB565 &&
                 camera->GetFrameWidth() >= 120 && camera->GetFrameHeight() >= 120) {
                 int share = color_share((const uint16_t*)camera->GetFrameData(), camera->GetFrameWidth(),
-                                        camera->GetFrameHeight(), _color.c_str());
-                ESP_LOGI(TAG, "Camera: %d%% %s", share, _color.c_str());
+                                        camera->GetFrameHeight(), _color.load());
+                ESP_LOGI(TAG, "Camera: %d%% %s", share, _color.load());
                 matches = share >= 22 ? matches + 1 : 0;
                 if (matches >= 2) {  // Two frames in a row: the object is really there
                     resolve(Action::Color);
@@ -345,6 +356,10 @@ void panda_mandou::registerMcpTools()
                 PropertyList({Property("players", kPropertyTypeString)}),
                 [](const PropertyList& properties) -> ReturnValue {
                     subscribe_sensors_once();
+                    _resolved.store(true);  // A clock still running from an earlier game stops
+                    ++_challenge_id;
+                    _armed.store((int)Action::None);
+                    std::lock_guard<std::mutex> lock(_game_mutex);
                     _game = Game();
                     std::string names = properties["players"].value<std::string>();
                     std::string cur;
@@ -379,7 +394,7 @@ void panda_mandou::registerMcpTools()
                 PropertyList({Property("action", kPropertyTypeString), Property("color", kPropertyTypeString, ""),
                               Property("panda_said", kPropertyTypeBoolean, true)}),
                 [](const PropertyList& properties) -> ReturnValue {
-                    if (!_game.active) {
+                    if (!_active.load()) {
                         return std::string("No game running. Use self.mandou.start.");
                     }
                     std::string a = sd_paths::sanitize(properties["action"].value<std::string>());
@@ -401,31 +416,38 @@ void panda_mandou::registerMcpTools()
                             return std::string("Pick one of: vermelho, laranja, amarelo, verde, azul, roxo, rosa, "
                                                "branco, preto.");
                         }
-                        _color = color->name;
+                        _color.store(color->name);
                     }
-                    _panda_said  = properties["panda_said"].value<bool>();
-                    _deadline_ms = GetHAL().millis() + (action == Action::Color ? 25000 : 15000);
-                    uint32_t id  = ++_challenge_id;
+                    _resolved.store(true);  // The previous clock (if any) stops before the new one starts
+                    _panda_said.store(properties["panda_said"].value<bool>());
+                    _deadline_ms.store(GetHAL().millis() + (action == Action::Color ? 25000 : 15000));
+                    uint32_t id = ++_challenge_id;
                     _armed.store((int)action);
                     _resolved.store(false);
                     {
                         LvglLockGuard lock;
                         show_swatch(color);
                     }
-                    xTaskCreatePinnedToCoreWithCaps(challenge_task, "mandou", 6144, (void*)(uintptr_t)id, 3,
-                                                    nullptr, tskNO_AFFINITY, MALLOC_CAP_SPIRAM);
+                    if (xTaskCreatePinnedToCoreWithCaps(challenge_task, "mandou", 6144, (void*)(uintptr_t)id, 3,
+                                                        nullptr, tskNO_AFFINITY, MALLOC_CAP_SPIRAM) != pdPASS) {
+                        _resolved.store(true);
+                        _armed.store((int)Action::None);
+                        LvglLockGuard lock;
+                        show_swatch(nullptr);
+                        return std::string("The robot is too busy right now: say the command again in a moment.");
+                    }
+                    std::lock_guard<std::mutex> lock(_game_mutex);
                     return std::string("Sensors armed for ") + current_player() +
                            ". Now say the command. Wait for the (sensores: ...) message before judging.";
                 });
 
     mcp.AddTool("self.mandou.end", "O Panda Mandou: stop the game and announce the stars.", PropertyList(),
                 [](const PropertyList&) -> ReturnValue {
-                    if (!_game.active) {
+                    if (!_active.load()) {
                         return std::string("No game running.");
                     }
                     _resolved.store(true);
                     _armed.store((int)Action::None);
-                    _game.active = false;
                     _active.store(false);
                     {
                         LvglLockGuard lock;
@@ -433,8 +455,13 @@ void panda_mandou::registerMcpTools()
                         GetStackChan().addModifier(std::make_unique<PartyModifier>());
                         GetStackChan().addModifier(std::make_unique<DanceModifier>(DanceModifier::Happy));
                     }
-                    std::string summary = "Game over after " + std::to_string(_game.rounds) + " commands. " +
-                                          scoreboard() + ". Celebrate everyone by name, no losers.";
+                    std::string summary;
+                    {
+                        std::lock_guard<std::mutex> lock(_game_mutex);
+                        _game.active = false;
+                        summary      = "Game over after " + std::to_string(_game.rounds) + " commands. " +
+                                  scoreboard() + ". Celebrate everyone by name, no losers.";
+                    }
                     sd_diary::log("panda-mandou", summary.c_str());
                     return summary;
                 });

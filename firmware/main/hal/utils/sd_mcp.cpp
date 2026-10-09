@@ -36,9 +36,8 @@ struct IrLearnJob {
 };
 static std::atomic<bool> _ir_learning{false};
 
-static void ir_learn_task(void* arg)
+static void ir_learn(const IrLearnJob* job)
 {
-    std::unique_ptr<IrLearnJob> job(static_cast<IrLearnJob*>(arg));
     std::string error;
     bool ok = ir_remote::learn(job->name, job->seconds * 1000, error);
     if (!ok) {
@@ -47,6 +46,14 @@ static void ir_learn_task(void* arg)
     sd_diary::log("sistema", ((ok ? "controle aprendido: " : "controle NAO aprendido: ") + job->name).c_str());
     Application::GetInstance().Schedule(
         [ok]() { Application::GetInstance().PlaySound(ok ? Lang::Sounds::OGG_SUCCESS : Lang::Sounds::OGG_EXCLAMATION); });
+}
+
+static void ir_learn_task(void* arg)
+{
+    {
+        std::unique_ptr<IrLearnJob> job(static_cast<IrLearnJob*>(arg));
+        ir_learn(job.get());
+    }  // vTaskDeleteWithCaps never returns: free everything before it
     _ir_learning.store(false);
     vTaskDeleteWithCaps(nullptr);
 }

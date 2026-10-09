@@ -854,8 +854,49 @@ void StackChanAvatarDisplay::SetPowerSaveMode(bool on)
 }
 
 // Runs in the LVGL task (LVGL lock held)
+// A speech whose audio never arrives left the robot "speaking" forever: with internal RAM nearly gone, Wi-Fi dropped
+// the packets mid-sentence (poker, 2026-10-09). Ask the server to stop, then fall back to standby so the children can
+// wake the robot up again. Legit pauses while the AI runs a tool last a few seconds; these limits are well above.
+static constexpr uint32_t kStalledSpeechAbortMs   = 20000;
+static constexpr uint32_t kStalledSpeechStandbyMs = 30000;
+
+static void check_stalled_speech()  // LVGL task, from NapCheck
+{
+    static uint32_t quiet_since = 0;
+    static int stage            = 0;
+    auto& app                   = Application::GetInstance();
+    uint32_t now                = GetHAL().millis();
+    if (app.GetDeviceState() != kDeviceStateSpeaking || !app.GetAudioService().IsIdle()) {
+        quiet_since = now;
+        stage       = 0;
+        return;
+    }
+    uint32_t quiet = now - quiet_since;
+    if (stage == 0 && quiet >= kStalledSpeechAbortMs) {
+        stage = 1;
+        ESP_LOGW(TAG, "Speech stalled for %lu ms: aborting", (unsigned long)quiet);
+        app.Schedule([]() {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateSpeaking) {
+                app.AbortSpeaking(kAbortReasonNone);
+            }
+        });
+    } else if (stage == 1 && quiet >= kStalledSpeechStandbyMs) {
+        stage = 2;
+        ESP_LOGW(TAG, "Speech still stalled: back to standby");
+        app.Schedule([]() {
+            auto& app = Application::GetInstance();
+            if (app.GetDeviceState() == kDeviceStateSpeaking) {
+                app.SetDeviceState(kDeviceStateIdle);
+            }
+        });
+    }
+}
+
 void StackChanAvatarDisplay::NapCheck()
 {
+    check_stalled_speech();
+
     auto& stackchan = GetStackChan();
     if (!stackchan.hasAvatar()) {
         return;

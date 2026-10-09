@@ -3,6 +3,7 @@
  */
 #pragma once
 #include <cstddef>
+#include <cstdint>
 
 /**
  * @brief microSD card on the CoreS3 slot, mounted as FAT at /sdcard.
@@ -28,6 +29,12 @@ inline constexpr const char* kMountPoint = "/sdcard";
  * that runs out the SPI driver crashed (seen during long conversations), so background writers check this first
  */
 bool hasDmaHeadroom(size_t bytes = 8 * 1024);
+
+/**
+ * @brief Wait up to `timeoutMs` for hasDmaHeadroom(bytes). Call it before each SD transfer from a background task
+ * (never while holding a BusGuard: freeing memory may need the screen to finish a frame)
+ */
+bool waitDmaHeadroom(size_t bytes = 8 * 1024, uint32_t timeoutMs = 2000);
 
 class BusGuard {
 public:

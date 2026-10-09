@@ -88,6 +88,12 @@ export async function transcodeToRobot(input: string, output: string, timeoutMs 
     timeoutMs,
   );
   dec.child.stdin.end();
-  const [encoded] = await Promise.all([encodePcm(dec.child.stdout, output, timeoutMs), dec.done]);
-  return encoded;
+  try {
+    const [encoded] = await Promise.all([encodePcm(dec.child.stdout, output, timeoutMs), dec.done]);
+    return encoded;
+  } catch (err) {
+    dec.child.kill('SIGKILL'); // opusenc failed: don't leave ffmpeg running until its timeout
+    dec.done.catch(() => {});
+    throw err;
+  }
 }

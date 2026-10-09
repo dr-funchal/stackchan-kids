@@ -146,5 +146,12 @@ const shutdown = async (signal: string) => {
   await Promise.allSettled([connection?.stop(), external.closeAll(), activity.flush()]);
   process.exit(0);
 };
+// Last line of defence: a stray rejection is logged instead of killing the process (the robot would lose its tools
+// until Docker restarts it). A real uncaught exception leaves unknown state, so that one still exits and restarts.
+process.on('unhandledRejection', (reason) => log.error('unhandled rejection', { error: String(reason) }));
+process.on('uncaughtException', (err) => {
+  log.error('uncaught exception, restarting', { error: String(err), stack: err.stack });
+  process.exit(1);
+});
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));

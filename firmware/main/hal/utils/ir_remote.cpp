@@ -157,7 +157,7 @@ static bool load(const std::string& name, uint32_t& carrier, std::vector<uint32_
     char line[32];
     carrier = fgets(line, sizeof(line), f) ? strtoul(line, nullptr, 10) : kCarrierHz;
     unsigned value;
-    while (fscanf(f, "%u", &value) == 1) {
+    while (durations.size() < 2048 && fscanf(f, "%u", &value) == 1) {  // Cap: a corrupt file can't eat the RAM
         durations.push_back(value);
         fgetc(f);  // Skip the comma
     }
@@ -187,7 +187,12 @@ bool ir_remote::send(const std::string& rawName, std::string& error)
         error = "Button not learned yet";
         return false;
     }
-    std::lock_guard<std::mutex> lock(_ir_mutex);
+    // Runs on the main task (MCP tool): never wait the up to 15 s of a learn in progress
+    std::unique_lock<std::mutex> lock(_ir_mutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        error = "Busy learning a remote button, try again in a few seconds";
+        return false;
+    }
 
     // Marks carry the 38 kHz carrier (level 1), spaces are idle (level 0). RMT halves hold up to 32767 ticks
     std::vector<rmt_symbol_word_t> symbols;

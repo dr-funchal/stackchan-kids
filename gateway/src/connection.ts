@@ -57,7 +57,18 @@ export class GatewayConnection {
   #set(state: ConnectionInfo['state'], detail?: string): void {
     this.#status.set(state, detail);
     if (state !== this.#info.state) this.#info = { ...this.#info, state, since: new Date().toISOString() };
-    for (const l of this.#listeners) l(this.#info);
+    this.#notify();
+  }
+
+  /** A failing listener (the panel broadcast, the activity feed) must never break the reconnect loop. */
+  #notify(): void {
+    for (const l of this.#listeners) {
+      try {
+        l(this.#info);
+      } catch (err) {
+        this.#log.warn('connection listener failed', { error: String(err) });
+      }
+    }
   }
 
   /** Drops the socket and reconnects at once, so xiaozhi.me lists the tools again (after a change in the panel). */
@@ -110,23 +121,32 @@ export class GatewayConnection {
       let pingTimer: NodeJS.Timeout | undefined;
       let pongTimer: NodeJS.Timeout | undefined;
 
-      ws.on('open', async () => {
-        this.#log.info('connected to xiaozhi.me MCP endpoint');
-        this.#set('connected');
-        const server = createMcpServer(this.#registry, this.#log, (count) => {
-          this.#info = { ...this.#info, toolsListedAt: new Date().toISOString(), toolsListed: count };
-          for (const l of this.#listeners) l(this.#info);
-        });
-        server.onerror = (err) => this.#log.warn('mcp error', { error: String(err) });
-        await server.connect(new WebSocketTransport(ws));
+      // An async listener's rejection is not caught by `ws`: it would crash the process, so it ends the session instead
+      ws.on('open', () => {
+        void (async () => {
+          this.#log.info('connected to xiaozhi.me MCP endpoint');
+          this.#set('connected');
+          const server = createMcpServer(this.#registry, this.#log, (count) => {
+            this.#info = { ...this.#info, toolsListedAt: new Date().toISOString(), toolsListed: count };
+            this.#notify();
+          });
+          server.onerror = (err) => this.#log.warn('mcp error', { error: String(err) });
+          await server.connect(new WebSocketTransport(ws));
+          if (ws.readyState !== WebSocket.OPEN) return; // closed while connecting: no timers to leak
 
-        pingTimer = setInterval(() => {
-          ws.ping();
-          pongTimer = setTimeout(() => {
-            this.#log.warn('no pong, dropping connection');
-            ws.terminate();
-          }, PONG_TIMEOUT_MS);
-        }, PING_EVERY_MS);
+          pingTimer = setInterval(() => {
+            if (ws.readyState !== WebSocket.OPEN) return; // ping() on a closing socket throws
+            ws.ping();
+            clearTimeout(pongTimer);
+            pongTimer = setTimeout(() => {
+              this.#log.warn('no pong, dropping connection');
+              ws.terminate();
+            }, PONG_TIMEOUT_MS);
+          }, PING_EVERY_MS);
+        })().catch((err) => {
+          this.#log.warn('session setup failed', { error: String(err) });
+          ws.terminate();
+        });
       });
       ws.on('pong', () => clearTimeout(pongTimer));
       ws.on('error', (err) => this.#log.warn('socket error', { error: String(err) }));

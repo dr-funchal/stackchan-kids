@@ -37,6 +37,9 @@ static bool start_psram_task(TaskFunction_t fn, const char* name, uint32_t stack
     return true;
 }
 
+// Ends a task started by start_psram_task. vTaskDeleteWithCaps never returns, so destructors of the caller's locals
+// never run: task bodies live in their own function and only call this after it returned (a BusGuard still alive
+// here kept the LVGL lock forever and froze the screen)
 static void delete_self()
 {
     vTaskDeleteWithCaps(nullptr);
@@ -200,9 +203,18 @@ void sd_diary::log(const char* who, const char* text)
         return;
     }
     if (!_diary_queue) {
-        _diary_queue = xQueueCreate(16, sizeof(std::string*));
-        if (!_diary_queue || !start_psram_task(diary_task, "sd_diary", 4096, nullptr, 1)) {
-            return;
+        // First lines come from several tasks at once (display, games, downloads): create the writer only once
+        static std::mutex create_mutex;
+        std::lock_guard<std::mutex> lock(create_mutex);
+        if (!_diary_queue) {
+            QueueHandle_t queue = xQueueCreate(16, sizeof(std::string*));
+            if (!queue) {
+                return;
+            }
+            _diary_queue = queue;
+            if (!start_psram_task(diary_task, "sd_diary", 4096, nullptr, 1)) {
+                return;  // Lines queue up and are dropped once full; the conversation never waits
+            }
         }
     }
 
@@ -310,45 +322,76 @@ static void log_stats(const char* label, const AudioStats& s)
              label, s.peak_db, s.rms_db, s.noise_db, s.rms_db - s.noise_db, s.clipped_pct, s.voice_ms);
 }
 
-static void write_le(FILE* f, uint32_t value, int bytes);
-
-static void write_wav(const std::string& path, const int16_t* data, size_t samples, int rate)
-{
-    uint32_t bytes = samples * sizeof(int16_t);
-    FILE* f        = fopen(path.c_str(), "wb");
-    if (!f) {
-        ESP_LOGE(TAG, "Cannot write %s", path.c_str());
-        return;
-    }
-    // 16-bit mono PCM WAV
-    fwrite("RIFF", 1, 4, f);
-    write_le(f, 36 + bytes, 4);
-    fwrite("WAVEfmt ", 1, 8, f);
-    write_le(f, 16, 4);
-    write_le(f, 1, 2);
-    write_le(f, 1, 2);
-    write_le(f, rate, 4);
-    write_le(f, rate * 2, 4);
-    write_le(f, 2, 2);
-    write_le(f, 16, 2);
-    fwrite("data", 1, 4, f);
-    write_le(f, bytes, 4);
-    fwrite(data, 1, bytes, f);
-    fclose(f);
-}
-
-static void write_le(FILE* f, uint32_t value, int bytes)
+static void put_le(uint8_t* out, uint32_t value, int bytes)
 {
     for (int i = 0; i < bytes; i++) {
-        fputc((value >> (8 * i)) & 0xFF, f);
+        out[i] = (value >> (8 * i)) & 0xFF;
     }
 }
 
-static void recorder_save_task(void*)
+// 16-bit mono PCM WAV, written in 4 KB pieces: each piece waits for DMA memory and holds the bus (and freezes the
+// screen) only for its own transfer
+static bool write_wav(const std::string& path, const int16_t* data, size_t samples, int rate)
+{
+    uint32_t bytes = samples * sizeof(int16_t);
+    uint8_t header[44];
+    memcpy(header, "RIFF", 4);
+    put_le(header + 4, 36 + bytes, 4);
+    memcpy(header + 8, "WAVEfmt ", 8);
+    put_le(header + 16, 16, 4);
+    put_le(header + 20, 1, 2);
+    put_le(header + 22, 1, 2);
+    put_le(header + 24, rate, 4);
+    put_le(header + 28, rate * 2, 4);
+    put_le(header + 32, 2, 2);
+    put_le(header + 34, 16, 2);
+    memcpy(header + 36, "data", 4);
+    put_le(header + 40, bytes, 4);
+
+    if (!sd_card::waitDmaHeadroom()) {
+        ESP_LOGE(TAG, "No DMA memory to write %s", path.c_str());
+        return false;
+    }
+    FILE* f;
+    {
+        sd_card::BusGuard guard;
+        f = fopen(path.c_str(), "wb");
+        if (f && fwrite(header, 1, sizeof(header), f) != sizeof(header)) {
+            fclose(f);
+            f = nullptr;
+        }
+    }
+    if (!f) {
+        ESP_LOGE(TAG, "Cannot write %s", path.c_str());
+        return false;
+    }
+    const auto* p = reinterpret_cast<const uint8_t*>(data);
+    bool ok       = true;
+    for (uint32_t done = 0; ok && done < bytes;) {
+        uint32_t n = std::min<uint32_t>(4096, bytes - done);
+        ok         = sd_card::waitDmaHeadroom();
+        if (ok) {
+            sd_card::BusGuard guard;
+            ok = fwrite(p + done, 1, n, f) == n;
+        }
+        done += n;
+    }
+    sd_card::BusGuard guard;
+    fclose(f);
+    if (!ok) {
+        remove(path.c_str());
+        ESP_LOGE(TAG, "Write failed: %s", path.c_str());
+    }
+    return ok;
+}
+
+static void recorder_save()
 {
     std::string dir = std::string(sd_paths::kVoices) + "/" + _rec_name;
-    sd_card::BusGuard guard;  // One short WAV write; the screen pauses for it
-    mkdir(dir.c_str(), 0775);
+    {
+        sd_card::BusGuard guard;
+        mkdir(dir.c_str(), 0775);
+    }
 
     std::string stamp = sd_paths::now();
     std::replace(stamp.begin(), stamp.end(), ' ', '_');
@@ -356,13 +399,15 @@ static void recorder_save_task(void*)
     std::string base = dir + "/" + (stamp.empty() ? "amostra_" + std::to_string(time(nullptr)) : stamp);
 
     size_t samples = _rec_length.load();
-    write_wav(base + ".wav", _rec_buffer, samples, _rec_rate);
+    bool saved       = write_wav(base + ".wav", _rec_buffer, samples, _rec_rate);
     size_t processed = _proc_buffer ? _proc_length.load() : 0;
-    if (processed) {
+    if (saved && processed) {
         write_wav(base + "_processado.wav", _proc_buffer, processed, kProcessedRate);
     }
-    ESP_LOGI(TAG, "Voice sample saved: %s.wav (%u samples @ %d Hz)", base.c_str(), (unsigned)samples, _rec_rate);
-    sd_diary::log("sistema", ("amostra de voz gravada: " + _rec_name).c_str());
+    if (saved) {
+        ESP_LOGI(TAG, "Voice sample saved: %s.wav (%u samples @ %d Hz)", base.c_str(), (unsigned)samples, _rec_rate);
+        sd_diary::log("sistema", ("amostra de voz gravada: " + _rec_name).c_str());
+    }
 
     StatsAccumulator raw(_rec_rate);
     raw.add(_rec_buffer, samples);
@@ -377,6 +422,11 @@ static void recorder_save_task(void*)
 
     heap_caps_free(_rec_buffer);
     _rec_buffer = nullptr;
+}
+
+static void recorder_save_task(void*)
+{
+    recorder_save();
     _rec_state.store(kRecIdle);
     delete_self();
 }
@@ -437,6 +487,8 @@ void sd_recorder::feed(const int16_t* data, int samples, int channels, int sampl
         if (!start_psram_task(recorder_save_task, "sd_rec_save", 6144, nullptr)) {
             heap_caps_free(_rec_buffer);
             _rec_buffer = nullptr;
+            heap_caps_free(_proc_buffer);
+            _proc_buffer = nullptr;
             _rec_state.store(kRecIdle);
         }
     }
@@ -453,9 +505,8 @@ void sd_recorder::feedProcessed(const int16_t* data, size_t samples)
     _proc_length.store(length + n, std::memory_order_relaxed);
 }
 
-static void analyze_task(void*)
+static void analyze_existing()
 {
-    vTaskDelay(pdMS_TO_TICKS(25000));  // After boot and activation settle
     auto* chunk = (int16_t*)heap_caps_malloc(8192, MALLOC_CAP_SPIRAM);
     for (auto& child : sd_paths::listDirs(sd_paths::kVoices)) {
         std::string dir = std::string(sd_paths::kVoices) + "/" + child;
@@ -463,6 +514,9 @@ static void analyze_task(void*)
             std::string path = dir + "/" + file;
             FILE* f;
             uint8_t header[44];
+            if (!chunk || !sd_card::waitDmaHeadroom()) {
+                continue;
+            }
             {
                 sd_card::BusGuard guard;
                 f = fopen(path.c_str(), "rb");
@@ -478,7 +532,8 @@ static void analyze_task(void*)
             StatsAccumulator acc(rate > 0 ? rate : 16000);
             size_t n;
             do {
-                {
+                n = 0;
+                if (sd_card::waitDmaHeadroom()) {
                     sd_card::BusGuard guard;
                     n = fread(chunk, sizeof(int16_t), 4096, f);
                 }
@@ -493,6 +548,12 @@ static void analyze_task(void*)
         }
     }
     heap_caps_free(chunk);
+}
+
+static void analyze_task(void*)
+{
+    vTaskDelay(pdMS_TO_TICKS(25000));  // After boot and activation settle
+    analyze_existing();
     delete_self();
 }
 
@@ -569,9 +630,8 @@ void sd_story::setPlaybackHook(std::function<void(bool playing)> hook)
     _story_hook = std::move(hook);
 }
 
-static void story_task(void* arg)
+static void play_story(const std::string* path)
 {
-    std::unique_ptr<std::string> path(static_cast<std::string*>(arg));
     auto& audio = Application::GetInstance().GetAudioService();
     auto codec  = Board::GetInstance().GetAudioCodec();
 
@@ -582,8 +642,6 @@ static void story_task(void* arg)
     }
     if (!f) {
         ESP_LOGE(TAG, "Cannot open %s", path->c_str());
-        _story_playing.store(false);
-        delete_self();
         return;
     }
 
@@ -613,8 +671,8 @@ static void story_task(void* arg)
     auto* chunk = (uint8_t*)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
     size_t read = 0;
     while (chunk && !_story_stop.load()) {
-        while (!sd_card::hasDmaHeadroom() && !_story_stop.load()) {
-            vTaskDelay(pdMS_TO_TICKS(50));  // Wait for internal DMA memory rather than crash the SPI driver
+        if (!sd_card::waitDmaHeadroom(8 * 1024, 100)) {
+            continue;  // Wait for internal DMA memory rather than crash the SPI driver (and keep checking for stop)
         }
         {
             sd_card::BusGuard guard;
@@ -644,6 +702,14 @@ static void story_task(void* arg)
 
     if (_story_hook) {
         _story_hook(false);
+    }
+}
+
+static void story_task(void* arg)
+{
+    {
+        std::unique_ptr<std::string> path(static_cast<std::string*>(arg));
+        play_story(path.get());
     }
     _story_stop.store(false);
     _story_playing.store(false);
@@ -685,7 +751,9 @@ void sd_story::onDeviceStatus(bool idle, bool listening)
         _story_closing.store(false);
         _story_stop.store(false);
         _story_playing.store(true);
-        if (!start_psram_task(story_task, "sd_story", 8192, new std::string(pending), 4)) {
+        auto* path = new std::string(pending);
+        if (!start_psram_task(story_task, "sd_story", 8192, path, 4)) {
+            delete path;
             _story_playing.store(false);
         }
     }

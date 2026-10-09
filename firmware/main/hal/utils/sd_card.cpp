@@ -34,6 +34,17 @@ bool sd_card::hasDmaHeadroom(size_t bytes)
     return heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) >= bytes;
 }
 
+bool sd_card::waitDmaHeadroom(size_t bytes, uint32_t timeoutMs)
+{
+    for (uint32_t waited = 0; !hasDmaHeadroom(bytes); waited += 50) {
+        if (waited >= timeoutMs) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    return true;
+}
+
 sd_card::BusGuard::BusGuard()
 {
     int64_t t0 = esp_timer_get_time();

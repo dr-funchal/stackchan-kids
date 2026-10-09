@@ -40,10 +40,7 @@ static bool load_card_story(const std::string& file)
     {
         // Small reads (512-byte sectors) need less DMA headroom than the background writers; wait up to 1 s for it
         // instead of failing (during a conversation the big check failed and the story looked missing)
-        for (int i = 0; i < 20 && !sd_card::hasDmaHeadroom(4 * 1024); i++) {
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
-        if (!sd_card::hasDmaHeadroom(4 * 1024)) {
+        if (!sd_card::waitDmaHeadroom(4 * 1024, 1000)) {
             ESP_LOGW(TAG, "No DMA memory to read %s", file.c_str());
             return false;
         }
@@ -134,15 +131,17 @@ std::string stories::listTitles()
 
 bool stories::start(const std::string& name, std::string& result, bool allowRandom)
 {
-    ESP_LOGI(TAG, "Looking for '%s' (card has %u .txt)", name.c_str(), (unsigned)card_stories().size());
+    // One directory scan per request: every scan freezes the screen for a moment (shared SPI bus)
+    const auto files   = card_stories();
     std::string wanted = sd_paths::sanitize(name);
+    ESP_LOGI(TAG, "Looking for '%s' (card has %u .txt)", name.c_str(), (unsigned)files.size());
     _pages.clear();
     _page = 0;
 
     const BuiltinStory* found = nullptr;
     // Card stories by the full request (a .txt title is its file name)
     {
-        for (auto& f : card_stories()) {
+        for (auto& f : files) {
             if (!wanted.empty() && sd_paths::sanitize(f).find(wanted) != std::string::npos &&
                 load_card_story(f)) {
                 break;
@@ -163,7 +162,7 @@ bool stories::start(const std::string& name, std::string& result, bool allowRand
     }
     // Loose match on any word of the request ("a do morcego" -> morcego)
     if (!found && _pages.empty()) {
-        for (auto& f : card_stories()) {
+        for (auto& f : files) {
             std::string file = sd_paths::sanitize(f);
             size_t pos = 0;
             bool hit   = false;

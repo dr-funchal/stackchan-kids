@@ -218,6 +218,12 @@ static esp_err_t file_handler(httpd_req_t* req)
     esp_err_t rc = buf ? ESP_OK : ESP_ERR_NO_MEM;
     size_t n = 0;
     while (rc == ESP_OK) {
+        // Every SD transfer needs internal DMA memory; streaming a file in the middle of a conversation used to be
+        // the one card access that didn't check (the SPI driver crashes when that memory runs out)
+        if (!sd_card::waitDmaHeadroom()) {
+            rc = ESP_FAIL;
+            break;
+        }
         {
             sd_card::BusGuard guard;
             n = fread(buf, 1, 4096, f);
@@ -257,16 +263,19 @@ static esp_err_t upload_handler(httpd_req_t* req)
     auto* buf     = (char*)heap_caps_malloc(4096, MALLOC_CAP_SPIRAM);
     int remaining = req->content_len;
     bool ok       = buf != nullptr;
+    int timeouts = 0;
     while (ok && remaining > 0) {
         int n = httpd_req_recv(req, buf, std::min(remaining, 4096));
-        if (n == HTTPD_SOCK_ERR_TIMEOUT) {
-            continue;
+        if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 3) {
+            continue;  // A phone that went quiet for 45 s is gone: don't hold the server and the open file forever
         }
+        timeouts = 0;
         if (n <= 0) {
             ok = false;
             break;
         }
-        {
+        ok = sd_card::waitDmaHeadroom();
+        if (ok) {
             sd_card::BusGuard guard;  // Receive from the network outside the guard, write inside
             ok = fwrite(buf, 1, n, f) == (size_t)n;
         }

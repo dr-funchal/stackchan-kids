@@ -9,14 +9,16 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
-#include <mutex>
 #include <string>
 
 static const char* TAG = "SdImages";
 
+static constexpr long kMaxImageBytes = 320 * 240 * 4;  // A full-screen ARGB8888 image; anything bigger is corrupt
+
 namespace {
-std::mutex _mutex;
-std::map<std::string, lv_image_dsc_t*> _cache;  // Never freed: images live for the whole run
+// Never freed: images live for the whole run. Guarded by the bus guard (the LVGL lock), which callers on the LVGL
+// side already hold: a separate mutex taken in the other order could deadlock against them
+std::map<std::string, lv_image_dsc_t*> _cache;
 }  // namespace
 
 static std::string path_for(const char* name)
@@ -39,14 +41,13 @@ const lv_image_dsc_t* sd_images::get(const char* name)
     if (!sd_card::isMounted()) {
         return nullptr;
     }
-    std::lock_guard<std::mutex> lock(_mutex);
+    sd_card::BusGuard guard;
     auto it = _cache.find(name);
     if (it != _cache.end()) {
         return it->second;
     }
 
     std::string path = path_for(name);
-    sd_card::BusGuard guard;
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) {
         ESP_LOGW(TAG, "Missing %s", path.c_str());
@@ -58,7 +59,7 @@ const lv_image_dsc_t* sd_images::get(const char* name)
 
     lv_image_header_t header;
     long data_size = size - (long)sizeof(header);
-    uint8_t* data  = data_size > 0 ? (uint8_t*)heap_caps_malloc(data_size, MALLOC_CAP_SPIRAM) : nullptr;
+    uint8_t* data  = data_size > 0 && data_size <= kMaxImageBytes ? (uint8_t*)heap_caps_malloc(data_size, MALLOC_CAP_SPIRAM) : nullptr;
     bool ok        = data && fread(&header, 1, sizeof(header), f) == sizeof(header) &&
               header.magic == LV_IMAGE_HEADER_MAGIC && fread(data, 1, data_size, f) == (size_t)data_size;
     fclose(f);
@@ -68,7 +69,11 @@ const lv_image_dsc_t* sd_images::get(const char* name)
         return nullptr;
     }
 
-    auto* dsc      = (lv_image_dsc_t*)heap_caps_calloc(1, sizeof(lv_image_dsc_t), MALLOC_CAP_SPIRAM);
+    auto* dsc = (lv_image_dsc_t*)heap_caps_calloc(1, sizeof(lv_image_dsc_t), MALLOC_CAP_SPIRAM);
+    if (!dsc) {
+        heap_caps_free(data);
+        return nullptr;
+    }
     dsc->header    = header;
     dsc->data      = data;
     dsc->data_size = data_size;
