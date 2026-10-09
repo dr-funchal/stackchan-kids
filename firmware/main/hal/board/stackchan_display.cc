@@ -33,6 +33,9 @@ using namespace stackchan::avatar;
 static constexpr uint32_t kNapAfterMs     = 5 * 60 * 1000;
 static constexpr uint32_t kNapCheckMs     = 250;
 static constexpr uint8_t kNapBrightness   = 10;
+// Between story pages the robot drops to listening for a few seconds while the AI fetches the next page. The scenery
+// stays still through such short gaps and only wakes up when nobody speaks for this long (or the chat ends).
+static constexpr uint32_t kSceneryThawMs  = 8000;
 static std::atomic<uint32_t> _last_activity_ms{0};
 static std::atomic<bool> _nap_requested{false};
 static std::atomic<bool> _power_button_pressed{false};
@@ -668,6 +671,33 @@ bool hal_bridge::is_xiaozhi_idle()
     return _is_xiaozhi_idle;
 }
 
+// LVGL task only (called under the display lock)
+void StackChanAvatarDisplay::ThawSceneryLater()
+{
+    if (scenery_thaw_timer_) {
+        lv_timer_reset(scenery_thaw_timer_);
+        return;
+    }
+    scenery_thaw_timer_ = lv_timer_create(
+        [](lv_timer_t* timer) {
+            auto* self                = static_cast<StackChanAvatarDisplay*>(lv_timer_get_user_data(timer));
+            self->scenery_thaw_timer_ = nullptr;
+            lv_timer_delete(timer);
+            if (!sd_story::isPlaying()) {
+                setSceneryFrozen(false);
+            }
+        },
+        kSceneryThawMs, this);
+}
+
+void StackChanAvatarDisplay::CancelSceneryThaw()
+{
+    if (scenery_thaw_timer_) {
+        lv_timer_delete(scenery_thaw_timer_);
+        scenery_thaw_timer_ = nullptr;
+    }
+}
+
 void StackChanAvatarDisplay::SetStatus(const char* status)
 {
     // ESP_LOGE(TAG, "SetStatus: %s", status);
@@ -687,8 +717,15 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
     poke_activity();
     const bool is_standby_status   = strcmp(status, Lang::Strings::STANDBY) == 0;
     const bool is_listening_status = strcmp(status, Lang::Strings::LISTENING) == 0;
-    if (strcmp(status, Lang::Strings::SPEAKING) != 0 && !sd_story::isPlaying()) {
-        setSceneryFrozen(false);
+    if (strcmp(status, Lang::Strings::SPEAKING) == 0) {
+        CancelSceneryThaw();
+    } else if (!sd_story::isPlaying()) {
+        if (is_listening_status) {
+            ThawSceneryLater();
+        } else {
+            CancelSceneryThaw();
+            setSceneryFrozen(false);
+        }
     }
     set_listening_frame(is_listening_status);
     papa_letras::onListening(is_listening_status);
@@ -738,9 +775,9 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         GetHAL().refreshRgb();
 
     } else if (strcmp(status, Lang::Strings::SPEAKING) == 0) {
+        // Leave the CPU to the audio decoder while speaking (every time: speech can resume without a listening gap)
+        setSceneryFrozen(true);
         if (speaking_modifier_id_ < 0) {
-            // Leave the CPU to the audio decoder while speaking
-            setSceneryFrozen(true);
             speaking_modifier_id_ = stackchan.addModifier(std::make_unique<LipSyncModifier>());
         }
 

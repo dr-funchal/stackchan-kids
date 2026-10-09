@@ -27,6 +27,7 @@ private:
     uint32_t nap_started_ms_            = 0;
     uint8_t brightness_before_nap_      = 0;
     lv_timer_t* nap_timer_              = nullptr;
+    lv_timer_t* scenery_thaw_timer_     = nullptr;
     uint8_t idle_motion_level_          = 2;
 
     lv_obj_t* preview_image_                         = nullptr;
@@ -37,6 +38,8 @@ private:
     void StartIdleBehaviors();
     void StopIdleBehaviors();
     void NapCheck();
+    void ThawSceneryLater();
+    void CancelSceneryThaw();
     void EnterNap();
     void ExitNap();
 
