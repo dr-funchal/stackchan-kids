@@ -21,6 +21,7 @@
 #include <hal/utils/sd_features.h>
 #include <hal/utils/papa_letras.h>
 #include <hal/utils/panda_mandou.h>
+#include <hal/utils/poker.h>
 #include <application.h>
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 
@@ -741,6 +742,9 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         sd_web::start();
         if (!_is_xiaozhi_idle && _is_xiaozhi_ready) {
             _conversation_ended_ms.store(GetHAL().millis());  // A conversation just ended (goodbye or timeout)
+            // A game the AI never closed (no "end" call) would leave its cards or letter on screen
+            papa_letras::onConversationEnded();
+            poker::onConversationEnded();
         }
     }
     sd_story::onDeviceStatus(is_standby_status, is_listening_status);

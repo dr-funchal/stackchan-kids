@@ -234,6 +234,21 @@ void papa_letras::onListening(bool listening)
     }
 }
 
+void papa_letras::onConversationEnded()
+{
+    if (!_game.active) {
+        return;
+    }
+    // The AI said goodbye (or the room went quiet) without self.game.end: pause quietly, no fanfare
+    _game.active    = false;
+    _game.paused_at = GetHAL().millis();
+    _active.store(false);
+    ++_clock_generation;
+    show_letter(-1);
+    ESP_LOGI(TAG, "Conversation ended mid-game: paused at letter %c", kLetters[_game.letter]);
+    sd_diary::log("papa-letras", (std::string("pausado na letra ") + kLetters[_game.letter]).c_str());
+}
+
 void papa_letras::onHeadTap()
 {
     if (_active.load()) {

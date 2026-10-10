@@ -47,6 +47,7 @@ struct Game {
     int next_card = 0;
     Hand hand[2];
     bool swap[5] = {};
+    bool revealed = false;  // The robot's cards are face up (showdown)
 };
 
 Game _game;
@@ -247,6 +248,7 @@ static void on_card_click(lv_event_t* e)
 
 static void show_table(bool reveal_robot)
 {
+    _game.revealed = reveal_robot;
     int x0 = (320 - (5 * kCardW + 4 * kCardGap)) / 2;
     int r0 = (320 - (5 * kRobotW + 4 * kRobotGap)) / 2;
     for (int i = 0; i < 5; i++) {
@@ -559,6 +561,17 @@ static std::string do_end()
     return summary;
 }
 
+// The conversation ended (goodbye, timeout) with a game still open: clear the table so the face comes back. The
+// game itself stays; the next self.poker call draws the table again
+void poker::onConversationEnded()
+{
+    LvglLockGuard lock;
+    if (_game.phase != Phase::None && _player_cards[0]) {
+        ESP_LOGI(TAG, "Conversation ended mid-game: hiding the table");
+        hide_table();
+    }
+}
+
 void poker::registerMcpTools()
 {
     // A single tool: the server accepts at most 32 tools in all, and the AI sees far more than that otherwise
@@ -578,6 +591,9 @@ void poker::registerMcpTools()
             bool finished = false;
             {
                 LvglLockGuard lock;
+                if (_game.phase != Phase::None && !_player_cards[0] && action != "start" && action != "end") {
+                    show_table(_game.revealed);  // Hidden when the last conversation ended
+                }
                 if (action == "start") {
                     result = do_start(value);
                 } else if (action == "draw") {

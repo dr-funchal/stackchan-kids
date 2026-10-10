@@ -16,4 +16,7 @@ void registerMcpTools();
 
 bool isActive();
 
+// From the display: the conversation ended (back to standby). Clears the cards off the screen
+void onConversationEnded();
+
 }  // namespace poker
