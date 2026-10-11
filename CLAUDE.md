@@ -20,6 +20,13 @@ Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/
   "Duplicate tool names" no robô (por isso `family_music`).
 - **Limite de 32 ferramentas visíveis à IA no robô**: em 2026-10-09 são 32, no limite (39 registradas, 7 `[user]` ficam ocultas).
   Antes de criar ferramenta nova no firmware, junte numa existente com parâmetro `action` (como `self.ir`, `self.poker`).
+  Em 2026-10-10 `self.skin.list`/`set` viraram `self.skin` para abrir vaga para `self.memory`.
+- Memória de longo prazo: `self.memory` (recall/remember/forget), grafo de fatos `sujeito | relação | objeto` em
+  `memoria/grafo.tsv` no cartão (`main/hal/utils/memory_graph*.{h,cpp}`, teste em `tests/memory_graph_test.cpp`).
+  Fica na PSRAM; só a tarefa `memory_graph` toca o cartão. Enviar o arquivo pela página web recarrega a memória.
+- Identidade ("quem eu sou") vem da cara: `kCurrentAvatarIdentity` em `skins/panda/panda.h` para a cara embutida,
+  `"identidade"` no `skin.json` das skins do cartão (`sd_skin::activeIdentity()`). Vai na descrição de `self.memory`;
+  trocar de skin reinicia o robô e a IA passa a saber da nova roupa. Ao trocar `CurrentAvatar`, troque a identidade junto.
 - Músicas no robô: ferramenta de firmware `self.gateway.play_audio` (`main/hal/utils/gateway_audio.cpp`) baixa de
   `https://m5.pulpfy.com/a/<código>` para `historias/musica_*.ogg` no cartão e toca com o player de histórias.
 

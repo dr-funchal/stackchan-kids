@@ -185,3 +185,29 @@ bool sd_skin::setActive(const std::string& name)
     ESP_LOGI(TAG, "Active skin set to %s", chosen.c_str());
     return true;
 }
+
+std::string sd_skin::activeIdentity()
+{
+    std::string dir = activeSkinDir();
+    if (dir.empty()) {
+        return kCurrentAvatarIdentity;
+    }
+    {
+        // Same test as SdSkinAvatar::load: without its background the display falls back to the built-in face
+        sd_card::BusGuard guard;
+        struct stat st = {};
+        if (stat((dir + "/fundo.png").c_str(), &st) != 0) {
+            return kCurrentAvatarIdentity;
+        }
+    }
+    std::string identity;
+    std::string json = read_file(dir + "/skin.json", 2048);
+    ArduinoJson::JsonDocument doc;
+    if (!json.empty() && ArduinoJson::deserializeJson(doc, json) == ArduinoJson::DeserializationError::Ok) {
+        identity = doc["identidade"] | "";
+    }
+    if (identity.empty()) {
+        identity = "a robot whose face is the \"" + dir.substr(dir.rfind('/') + 1) + "\" skin";
+    }
+    return identity;
+}

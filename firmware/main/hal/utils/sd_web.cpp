@@ -1,6 +1,7 @@
 /*
  * SPDX-License-Identifier: MIT
  */
+#include "memory_graph.h"
 #include "sd_features.h"
 #include "sd_card.h"
 #include <esp_heap_caps.h>
@@ -292,6 +293,9 @@ static esp_err_t upload_handler(httpd_req_t* req)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "upload failed");
     }
     ESP_LOGI(TAG, "Uploaded %s (%d bytes)", path.c_str(), req->content_len);
+    if (path.find("/memoria/") != std::string::npos) {
+        memory_graph::reload();  // The parents fixed the memory file
+    }
     return httpd_resp_sendstr(req, "ok");
 }
 
@@ -306,6 +310,9 @@ static esp_err_t delete_handler(httpd_req_t* req)
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "cannot delete");
     }
     ESP_LOGI(TAG, "Deleted %s", path.c_str());
+    if (path.find("/memoria") != std::string::npos) {
+        memory_graph::reload();
+    }
     return httpd_resp_sendstr(req, "ok");
 }
 

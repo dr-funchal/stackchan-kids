@@ -6,6 +6,7 @@
 #include "ir_remote.h"
 #include "stories.h"
 #include "gateway_audio.h"
+#include "memory_graph.h"
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 #include <application.h>
 #include <assets/lang_config.h>
@@ -116,20 +117,22 @@ void sd_features_register_mcp_tools()
                     return true;
                 });
 
-    mcp.AddTool("self.skin.list", "List the face skins on the SD card. \"padrao\" is the built-in face.",
-                PropertyList(), [](const PropertyList&) -> ReturnValue {
-                    auto skins = sd_skin::list();
-                    skins.insert(skins.begin(), "padrao");
-                    return json_list(skins);
-                });
-
-    mcp.AddTool("self.skin.set",
-                "Change the robot's face to a skin from the SD card (\"padrao\" for the built-in face). The robot "
-                "restarts a few seconds later to apply it; tell the child.",
-                PropertyList({Property("name", kPropertyTypeString)}),
+    // One tool for the skins: the server accepts at most 32 tools in all
+    mcp.AddTool("self.skin",
+                "Robot face skins on the SD card. action: list, or set (name from the list; \"padrao\" is the "
+                "built-in face). After set the robot restarts a few seconds later to apply it; tell the child.",
+                PropertyList({Property("action", kPropertyTypeString),
+                              Property("name", kPropertyTypeString, std::string(""))}),
                 [](const PropertyList& properties) -> ReturnValue {
-                    if (!sd_skin::setActive(properties["name"].value<std::string>())) {
-                        return std::string("Skin not found.");
+                    std::string action = properties["action"].value<std::string>();
+                    std::string name   = properties["name"].value<std::string>();
+                    if (action != "set" || name.empty()) {
+                        auto skins = sd_skin::list();
+                        skins.insert(skins.begin(), "padrao");
+                        return json_list(skins);
+                    }
+                    if (!sd_skin::setActive(name)) {
+                        return std::string("Skin not found. Skins: ") + json_list(sd_skin::list());
                     }
                     // Give the answer time to be spoken, then restart into the new face
                     xTaskCreate(
@@ -180,6 +183,9 @@ void sd_features_register_mcp_tools()
                 });
 
     gateway_audio::registerMcpTools();
+
+    // Long-term memory (graph of facts) on the card
+    memory_graph::registerMcpTool();
 
     ESP_LOGI(TAG, "SD card tools registered");
 }

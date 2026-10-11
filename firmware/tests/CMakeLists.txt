@@ -21,3 +21,8 @@ add_executable(poker_rules_test poker_rules_test.cpp)
 target_include_directories(poker_rules_test PRIVATE ../main)
 target_compile_features(poker_rules_test PRIVATE cxx_std_17)
 add_test(NAME poker_rules_test COMMAND $<TARGET_FILE:poker_rules_test>)
+
+add_executable(memory_graph_test memory_graph_test.cpp)
+target_include_directories(memory_graph_test PRIVATE ../main)
+target_compile_features(memory_graph_test PRIVATE cxx_std_17)
+add_test(NAME memory_graph_test COMMAND $<TARGET_FILE:memory_graph_test>)

@@ -13,7 +13,8 @@ namespace stackchan::avatar {
 
 /**
  * @brief Face loaded from the microSD card: skins/<name>/fundo.png (320x240 background) plus optional
- * skins/<name>/skin.json {"olhos":"#RRGGBB","palpebra":"#RRGGBB","boca":"#RRGGBB","presas":bool}.
+ * skins/<name>/skin.json {"olhos":"#RRGGBB","palpebra":"#RRGGBB","boca":"#RRGGBB","presas":bool,
+ * "identidade":"who the robot is with this face, e.g. a panda dressed up as Santa Claus"}.
  * Eyes are drawn at (90,104)/(230,104) and the mouth at (160,154), like the panda faces
  */
 class SdSkinAvatar : public Avatar {
@@ -40,4 +41,10 @@ std::string activeSkinDir();
 std::vector<std::string> list();
 // "padrao" (or empty) goes back to the built-in face. Takes effect after a restart
 bool setActive(const std::string& name);
+/**
+ * @brief Who the robot is with the face it boots with, in a few words for the AI: "identidade" from the active
+ * skin's skin.json, else the built-in face's (kCurrentAvatarIdentity). Changing the skin restarts the robot,
+ * so this follows the face without anyone updating it
+ */
+std::string activeIdentity();
 }  // namespace sd_skin

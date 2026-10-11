@@ -129,4 +129,12 @@ void setSceneryFrozen(bool frozen);
  */
 using CurrentAvatar = HalloweenPandaAvatar;
 
+/**
+ * @brief Who the robot is with the built-in face, told to the AI (sd_skin::activeIdentity). Change it together with
+ * CurrentAvatar; SD skins bring their own in skin.json ("identidade")
+ */
+inline constexpr const char* kCurrentAvatarIdentity =
+    "a panda dressed up as a vampire for Halloween: glowing orange eyes, little fangs, a witch hat, and bats, "
+    "pumpkins and a spider around you on the screen";
+
 }  // namespace stackchan::avatar
