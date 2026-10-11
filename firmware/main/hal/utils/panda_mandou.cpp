@@ -6,6 +6,7 @@
 #include <hal/hal.h>
 #include <hal/board/stackchan_camera.h>
 #include <stackchan/stackchan.h>
+#include <stackchan/inner_state/inner_state.h>
 #include <application.h>
 #include <board.h>
 #include <mcp_server.h>
@@ -356,6 +357,7 @@ void panda_mandou::registerMcpTools()
                 PropertyList({Property("players", kPropertyTypeString)}),
                 [](const PropertyList& properties) -> ReturnValue {
                     subscribe_sensors_once();
+                    inner_state::onEvent(inner_state::Event::Play);
                     _resolved.store(true);  // A clock still running from an earlier game stops
                     ++_challenge_id;
                     _armed.store((int)Action::None);

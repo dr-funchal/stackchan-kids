@@ -9,6 +9,7 @@
 #include <application.h>
 #include <hal/hal.h>
 #include <stackchan/stackchan.h>
+#include <stackchan/inner_state/inner_state.h>
 #include <mcp_server.h>
 #include <esp_log.h>
 #include <lvgl.h>
@@ -436,6 +437,7 @@ void papa_letras::registerMcpTools()
                     _game.active = true;
                     _active.store(true);
                     _timeouts_in_a_row.store(0);
+                    inner_state::onEvent(inner_state::Event::Play);
                     show_letter(0);
                     ESP_LOGI(TAG, "Start: theme %s, %u players", _game.theme.c_str(), (unsigned)_game.players.size());
                     sd_diary::log("papa-letras", ("inicio, tema " + _game.theme).c_str());

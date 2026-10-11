@@ -27,6 +27,11 @@ Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/
 - Identidade ("quem eu sou") vem da cara: `kCurrentAvatarIdentity` em `skins/panda/panda.h` para a cara embutida,
   `"identidade"` no `skin.json` das skins do cartão (`sd_skin::activeIdentity()`). Vai na descrição de `self.memory`;
   trocar de skin reinicia o robô e a IA passa a saber da nova roupa. Ao trocar `CurrentAvatar`, troque a identidade junto.
+- Vontades internas (`main/stackchan/inner_state/`, teste em `tests/inner_state_test.cpp`): energia, saudade,
+  curiosidade e humor (0..100) mudam com o tempo (avançam no `NapCheck`, a cada 250 ms) e com eventos (carinho, toque,
+  conversa, jogos/histórias, chacoalhar). Comandam o `idle_motion` (sonolento, procurando alguém) e o `idle_expression`
+  (cara feliz/triste/sonolenta); carinho depois de muita saudade faz o gesto Love. `recall "eu"` no `self.memory` traz
+  o corpo (bateria, inclinação desde o boot, tempo sozinho) e as vontades. Não persistem entre reinícios.
 - Músicas no robô: ferramenta de firmware `self.gateway.play_audio` (`main/hal/utils/gateway_audio.cpp`) baixa de
   `https://m5.pulpfy.com/a/<código>` para `historias/musica_*.ogg` no cartão e toca com o player de histórias.
 

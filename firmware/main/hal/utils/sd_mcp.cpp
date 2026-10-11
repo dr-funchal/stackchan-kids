@@ -7,6 +7,7 @@
 #include "stories.h"
 #include "gateway_audio.h"
 #include "memory_graph.h"
+#include <stackchan/inner_state/inner_state.h>
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 #include <application.h>
 #include <assets/lang_config.h>
@@ -98,6 +99,7 @@ void sd_features_register_mcp_tools()
                 PropertyList({Property("name", kPropertyTypeString)}),
                 [](const PropertyList& properties) -> ReturnValue {
                     std::string name = properties["name"].value<std::string>();
+                    inner_state::onEvent(inner_state::Event::Play);
                     // Read-aloud stories first: they return page 1 for the AI to read
                     std::string reading;
                     if (stories::start(name, reading, false)) {

@@ -53,7 +53,11 @@ int main()
     CHECK(contains(lia, "Gui | tem medo de | escuro"));  // One step away, through Gui
     CHECK(contains(lia, "Bolinha | cachorro de | Gui"));
     CHECK(!contains(lia, "futebol"));
-    CHECK(contains(g.recall("li"), "dinossauros"));  // Partial name
+    CHECK(contains(g.recall("bol"), "cachorro"));  // Partial name
+    CHECK(g.recall("ui").empty());                 // Too short for a partial match
+    CHECK(g.add(make_edge("eu", "gosto de", "historias de piratas", "")));
+    CHECK(g.add(make_edge("Theo", "mora em", "meu bairro", "")));
+    CHECK(!contains(g.recall("eu"), "Theo"));       // "eu" is exact, never "meu"
     CHECK(g.recall("ninguem").empty());
     CHECK(contains(g.recall(""), "Lia (2)"));
     CHECK(g.recall("Lia", 40).size() <= 40);
@@ -64,7 +68,7 @@ int main()
     CHECK(g.add(make_edge("Lia", "idade", "5", "")));
     CHECK(g.add(make_edge("Lia", "idade", "6", "")));
     CHECK(g.remove("Lia", "idade", "") == 2);  // Empty object: the whole relation
-    CHECK(g.size() == 4);
+    CHECK(g.size() == 6);
 
     if (failures == 0) {
         std::printf("memory_graph_test: all passed\n");

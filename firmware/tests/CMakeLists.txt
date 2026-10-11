@@ -26,3 +26,8 @@ add_executable(memory_graph_test memory_graph_test.cpp)
 target_include_directories(memory_graph_test PRIVATE ../main)
 target_compile_features(memory_graph_test PRIVATE cxx_std_17)
 add_test(NAME memory_graph_test COMMAND $<TARGET_FILE:memory_graph_test>)
+
+add_executable(inner_state_test inner_state_test.cpp)
+target_include_directories(inner_state_test PRIVATE ../main)
+target_compile_features(inner_state_test PRIVATE cxx_std_17)
+add_test(NAME inner_state_test COMMAND $<TARGET_FILE:inner_state_test>)

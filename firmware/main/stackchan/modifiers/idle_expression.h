@@ -6,6 +6,7 @@
 #pragma once
 #include "../modifiable.h"
 #include "../utils/random.h"
+#include "../inner_state/inner_state.h"
 #include <smooth_ui_toolkit.hpp>
 #include <hal/hal.h>
 #include <cstdint>
@@ -35,6 +36,9 @@ public:
             return;
         }
 
+        // Face from the inner drives (sleepy, sad when missing company a lot, happy when content)
+        apply_mood(stackchan.avatar());
+
         // 执行随机微表情
         perform_idle_emotion(stackchan.avatar());
 
@@ -44,6 +48,27 @@ public:
     }
 
 private:
+    static void apply_mood(avatar::Avatar& avatar)
+    {
+        avatar::Emotion target = avatar::Emotion::Neutral;
+        switch (inner_state::behavior().face) {
+            case inner_state::Face::Happy:
+                target = avatar::Emotion::Happy;
+                break;
+            case inner_state::Face::Sad:
+                target = avatar::Emotion::Sad;
+                break;
+            case inner_state::Face::Sleepy:
+                target = avatar::Emotion::Sleepy;
+                break;
+            default:
+                break;
+        }
+        if (avatar.getEmotion() != target) {
+            avatar.setEmotion(target);
+        }
+    }
+
     void perform_idle_emotion(avatar::Avatar& avatar)
     {
         int action = Random::getInstance().getInt(0, 100);

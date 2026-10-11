@@ -6,6 +6,7 @@
 #include "sd_card.h"
 #include "sd_features.h"
 #include <stackchan/avatar/skins/sd/sd_skin.h>
+#include <stackchan/inner_state/inner_state.h>
 #include <mcp_server.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -269,7 +270,26 @@ static std::string do_forget(const std::string& subject, const std::string& rela
     return "Forgot " + std::to_string(removed) + " fact(s).";
 }
 
+// "eu" (and the robot's own names) also brings how the body and the drives are right now
+static bool is_self(const std::string& subject)
+{
+    std::string k = memory_graph::key(subject.c_str());
+    return k == "eu" || k == "voce" || k == "me" || k == "self" || k == "stack chan" || k == "stackchan" ||
+           k == "robo";
+}
+
+static std::string recall_facts(const std::string& subject);
+
 static std::string do_recall(const std::string& subject)
+{
+    if (!is_self(subject)) {
+        return recall_facts(subject);
+    }
+    std::string facts = recall_facts("eu");
+    return inner_state::bodyReport() + " WHAT YOU KNOW ABOUT YOURSELF: " + facts;
+}
+
+static std::string recall_facts(const std::string& subject)
 {
     if (!_loaded.load()) {
         return "Memory is still loading, try again in a moment.";
@@ -306,10 +326,13 @@ void memory_graph::registerMcpTool()
         "WHO YOU ARE right now (from your face, always true; it changes with your costume): " + identity +
         ". Never save facts about your own looks. "
         "Your long-term memory about this family (a graph of facts, kept across conversations). action: recall "
-        "(subject = a name or topic; brings related people too; empty = who you know): call it when someone says "
-        "their name or mentions a person, pet or topic you may know, and use it naturally. remember (subject, "
-        "relation, object, short and in Portuguese, e.g. Lia | gosta de | dinossauros, Lia | irma de | Gui): save "
-        "anything worth knowing later, quietly. forget: same fields, for wrong or outdated facts.",
+        "(subject = a name or topic; brings related people too; empty = who you know; \"eu\" = how your body and "
+        "feelings are now plus what you know about yourself, use it at the start of a conversation and when asked "
+        "how you are): call it when someone says their name or mentions a person, pet or topic you may know, and "
+        "use it naturally. remember (subject, relation, object, short and in Portuguese, e.g. Lia | gosta de | "
+        "dinossauros, Lia | irma de | Gui): save anything worth knowing later, quietly; now and then also what you "
+        "learned about yourself (eu | aprendi que | ..., eu | gosto de | ...). forget: same fields, for wrong or "
+        "outdated facts.",
         PropertyList({Property("action", kPropertyTypeString),
                       Property("subject", kPropertyTypeString, std::string("")),
                       Property("relation", kPropertyTypeString, std::string("")),

@@ -22,6 +22,7 @@
 #include <hal/utils/papa_letras.h>
 #include <hal/utils/panda_mandou.h>
 #include <hal/utils/poker.h>
+#include <stackchan/inner_state/inner_state.h>
 #include <application.h>
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 
@@ -355,6 +356,7 @@ void StackChanAvatarDisplay::SetupUI()
     }
     panel->onClick().connect([]() {
         poke_activity();
+        inner_state::onEvent(inner_state::Event::Touch);
         if (panda_mandou::onScreenTap()) {
             return;  // "Touch my face" command in the game
         }
@@ -379,6 +381,11 @@ void StackChanAvatarDisplay::SetupUI()
     blink_modifier_id_ = stackchan.addModifier(std::make_unique<BlinkModifier>());
     stackchan.addModifier(std::make_unique<HeadPetModifier>());
     stackchan.addModifier(std::make_unique<ImuEventModifier>());
+    GetHAL().onImuMotionEvent.connect([](ImuMotionEvent event) {
+        if (event == ImuMotionEvent::Shake) {
+            inner_state::onEvent(inner_state::Event::Shake);
+        }
+    });
 
     // Nap mode: any head pet counts as interaction; the check runs in the LVGL task
     poke_activity();
@@ -399,6 +406,7 @@ void StackChanAvatarDisplay::SetupUI()
         } else if (gesture == HeadPetGesture::Release) {
             bool is_tap = !swiped && press_tick != 0 && now - press_tick < 700;
             press_tick  = 0;
+            inner_state::onEvent(swiped ? inner_state::Event::HeadPet : inner_state::Event::Touch);
             // During Papa-Letras: tap = hint, petting = skip
             if (papa_letras::isActive() && now - last_chat_tick > 2000) {
                 last_chat_tick = now;
@@ -729,6 +737,9 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         }
     }
     set_listening_frame(is_listening_status);
+    if (is_listening_status && _is_xiaozhi_idle) {
+        inner_state::onEvent(inner_state::Event::ConversationStart);  // From standby straight to listening
+    }
     papa_letras::onListening(is_listening_status);
     if (is_listening_status) {
         sd_recorder::onListening();
@@ -900,6 +911,7 @@ static void check_stalled_speech()  // LVGL task, from NapCheck
 void StackChanAvatarDisplay::NapCheck()
 {
     check_stalled_speech();
+    inner_state::tick(is_napping_, _is_xiaozhi_ready && !_is_xiaozhi_idle);
 
     auto& stackchan = GetStackChan();
     if (!stackchan.hasAvatar()) {

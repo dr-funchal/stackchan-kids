@@ -8,6 +8,7 @@
 #include <application.h>
 #include <hal/hal.h>
 #include <stackchan/stackchan.h>
+#include <stackchan/inner_state/inner_state.h>
 #include <mcp_server.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
@@ -462,6 +463,7 @@ static std::string do_start(const std::string& player)
     _game        = Game();
     _game.player = player.empty() ? std::string("you") : player;
     _active.store(true);
+    inner_state::onEvent(inner_state::Event::Play);
     ESP_LOGI(TAG, "Start: %s", _game.player.c_str());
     sd_diary::log("poker", ("inicio com " + _game.player).c_str());
     return std::string(kRules) + " Each starts with " + std::to_string(kStartChips) + " chips. " + deal();

@@ -226,7 +226,7 @@ public:
 
     /**
      * @brief Facts about a name or topic and about the nodes one step away from it ("Lia" also brings what is
-     * known about her brother Gui). Partial names match ("li" finds "Lia"). Newest facts first, cut at maxChars.
+     * known about her brother Gui). Partial names of 3+ letters match ("bol" finds "Bolinha"). Newest facts first, cut at maxChars.
      * An empty query lists the best-known nodes
      */
     std::string recall(const std::string& query, size_t maxChars = 1500) const
@@ -240,7 +240,9 @@ public:
         std::vector<std::string> seeds;
         auto add_seed = [&](const char* node) {
             std::string k = key(node);
-            if (k.find(q) != std::string::npos && std::find(seeds.begin(), seeds.end(), k) == seeds.end()) {
+            // Partial names from 3 letters: "eu" must not find "meu" or "europa"
+            bool hit = k == q || (q.size() >= 3 && k.find(q) != std::string::npos);
+            if (hit && std::find(seeds.begin(), seeds.end(), k) == seeds.end()) {
                 seeds.push_back(k);
             }
         };

@@ -6,6 +6,7 @@
 #pragma once
 #include "../modifiable.h"
 #include "../utils/random.h"
+#include "../inner_state/inner_state.h"
 #include <smooth_ui_toolkit.hpp>
 // #include <mooncake_log.h>
 #include <hal/hal.h>
@@ -58,7 +59,9 @@ public:
         perform_idle_motion(stackchan);
 
         // 算下一次的时间间隔
-        uint32_t delay = Random::getInstance().getInt(_interval_min, _interval_max);
+        // Inner drives: tired = moves less, curious = more often, missing company = searches around more often
+        uint32_t delay = Random::getInstance().getInt(_interval_min, _interval_max) *
+                         inner_state::behavior().interval_scale;
         _next_tick     = now + delay;
         // mclog::info("next idle motion in {} ms", delay);
     }
@@ -72,6 +75,22 @@ private:
         }
 
         int action = Random::getInstance().getInt(0, 100);
+        auto mood  = inner_state::behavior();
+
+        if (mood.drowsy) {
+            // Sleepy: head drooping low, slow small moves
+            int target_yaw   = uitk::clamp(motion.getCurrentAngles().x + Random::getInstance().getInt(-100, 100), -400, 400);
+            int target_pitch = Random::getInstance().getInt(0, 120);
+            motion.moveWithSpeed(target_yaw, target_pitch, Random::getInstance().getInt(60, 120));
+            return;
+        }
+        if (mood.searching && action < 60) {
+            // Missing company: wide look around the room, as if searching for someone
+            float target_x = Random::getInstance().getFloat(-0.9f, 0.9f);
+            float target_y = Random::getInstance().getFloat(-0.5f, 0.2f);
+            motion.lookAtNormalized(target_x, target_y, Random::getInstance().getInt(200, 320) * mood.speed_scale);
+            return;
+        }
 
         if (action < 50) {
             // 【动作 1：随意环视】使用归一化坐标 (-1.0 ~ 1.0)

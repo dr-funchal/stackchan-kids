@@ -192,6 +192,8 @@ public:
     void updateHeapStatusLog();
     uint8_t getBatteryLevel();
     bool isBatteryCharging();
+    // Degrees between gravity now and gravity at boot (the robot boots standing); -1 if the IMU is not working
+    int getTiltFromBootDegrees();
     void factoryReset();
 
     /* --------------------------------- Display -------------------------------- */
