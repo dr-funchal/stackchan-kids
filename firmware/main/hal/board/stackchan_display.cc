@@ -56,12 +56,15 @@ static void poke_activity()
 
 // After a conversation ends (goodbye), touches don't start a new one for a while: kids keep handling the robot
 // after "tchau", and every brief touch was waking it up again. The wake word always works
-static constexpr uint32_t kTouchStartCooldownMs = 30 * 1000;
+// Only after the conversation ended by itself (the AI's goodbye or a timeout): when a person ended it on purpose
+// (a tap or the side button) the next tap is meant too, and the old 30 s cooldown swallowed it (log, 2026-10-10)
+static constexpr uint32_t kTouchStartCooldownMs = 15 * 1000;
 static std::atomic<uint32_t> _conversation_ended_ms{0};
+static std::atomic<bool> _ended_by_person{false};
 
 // A child who really wants to talk keeps tapping: this many taps close together start it even in the cooldown
-static constexpr int kInsistentTaps        = 3;
-static constexpr uint32_t kInsistentTapsMs = 5000;
+static constexpr int kInsistentTaps        = 2;
+static constexpr uint32_t kInsistentTapsMs = 4000;
 
 static bool touch_start_allowed(const char* source)
 {
@@ -88,7 +91,7 @@ static bool touch_start_allowed(const char* source)
 
 // Taps right after a conversation starts must not close it: children tap again while it is still connecting, and
 // the second tap used to hang it up (then the cooldown swallowed every tap after it)
-static constexpr uint32_t kNoTapCloseMs = 10000;
+static constexpr uint32_t kNoTapCloseMs = 4000;  // Connecting takes ~1 s; longer kept people from hanging up
 static std::atomic<uint32_t> _conversation_started_ms{0};
 
 // Face elements (eyes, speech bubble...) are LVGL objects that were clickable and swallowed taps meant for the face:
@@ -133,6 +136,10 @@ static void on_face_tap()
             ESP_LOGI(TAG, "Ignoring screen tap: conversation is just starting");
             return;
         }
+    }
+    if (!hal_bridge::is_xiaozhi_idle() &&
+        Application::GetInstance().GetDeviceState() == kDeviceStateListening) {
+        _ended_by_person.store(true);  // This tap hangs up
     }
     last_toggle_tick = now;
     hal_bridge::toggle_xiaozhi_chat_state();
@@ -800,7 +807,8 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
     if (is_standby_status) {
         sd_web::start();
         if (!_is_xiaozhi_idle && _is_xiaozhi_ready) {
-            _conversation_ended_ms.store(GetHAL().millis());  // A conversation just ended (goodbye or timeout)
+            // A conversation just ended: the cooldown only follows a goodbye or a timeout, not a person hanging up
+            _conversation_ended_ms.store(_ended_by_person.exchange(false) ? 0 : GetHAL().millis());
             // A game the AI never closed (no "end" call) would leave its cards or letter on screen
             papa_letras::onConversationEnded();
             poker::onConversationEnded();
@@ -864,6 +872,7 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         if (_is_xiaozhi_idle) {
             // Standby -> anything else (connecting, listening): a conversation starts (tap, head tap or wake word)
             _conversation_started_ms.store(GetHAL().millis());
+            _ended_by_person.store(false);  // A side-button press while already idle must not carry over
             inner_state::onEvent(inner_state::Event::ConversationStart);
         }
 
@@ -979,6 +988,7 @@ void StackChanAvatarDisplay::NapCheck()
             poke_activity();
         } else {
             ESP_LOGI(TAG, "Power button: go to sleep");
+            _ended_by_person.store(true);
             _button_nap_pending = true;
             sd_story::stop();
             Application::GetInstance().Schedule([]() {
