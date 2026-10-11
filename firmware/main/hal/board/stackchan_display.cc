@@ -23,6 +23,7 @@
 #include <hal/utils/panda_mandou.h>
 #include <hal/utils/poker.h>
 #include <stackchan/inner_state/inner_state.h>
+#include <hal/board/hal_bridge.h>
 #include <application.h>
 #include <stackchan/avatar/skins/sd/sd_skin.h>
 
@@ -58,15 +59,83 @@ static void poke_activity()
 static constexpr uint32_t kTouchStartCooldownMs = 30 * 1000;
 static std::atomic<uint32_t> _conversation_ended_ms{0};
 
+// A child who really wants to talk keeps tapping: this many taps close together start it even in the cooldown
+static constexpr int kInsistentTaps        = 3;
+static constexpr uint32_t kInsistentTapsMs = 5000;
+
 static bool touch_start_allowed(const char* source)
 {
-    uint32_t ended = _conversation_ended_ms.load();
-    if (ended != 0 && GetHAL().millis() - ended < kTouchStartCooldownMs) {
-        ESP_LOGI(TAG, "Ignoring %s: conversation just ended", source);
-        return false;
+    static uint32_t tap_ticks[kInsistentTaps] = {};
+    static int tap_index                      = 0;
+    uint32_t now                              = GetHAL().millis();
+    uint32_t ended                            = _conversation_ended_ms.load();
+    if (ended != 0 && now - ended < kTouchStartCooldownMs) {
+        tap_ticks[tap_index] = now;
+        tap_index            = (tap_index + 1) % kInsistentTaps;
+        uint32_t oldest      = tap_ticks[tap_index];  // The tap kInsistentTaps-1 taps ago
+        if (oldest == 0 || now - oldest > kInsistentTapsMs) {
+            ESP_LOGI(TAG, "Ignoring %s: conversation just ended (tap again to insist)", source);
+            return false;
+        }
+        ESP_LOGI(TAG, "Insistent taps: starting despite the cooldown");
+    }
+    for (auto& t : tap_ticks) {
+        t = 0;
     }
     ESP_LOGI(TAG, "Conversation started by %s", source);
     return true;
+}
+
+// Taps right after a conversation starts must not close it: children tap again while it is still connecting, and
+// the second tap used to hang it up (then the cooldown swallowed every tap after it)
+static constexpr uint32_t kNoTapCloseMs = 10000;
+static std::atomic<uint32_t> _conversation_started_ms{0};
+
+// Face elements (eyes, speech bubble...) are LVGL objects that were clickable and swallowed taps meant for the face:
+// a child tapping the eyes or the "Zzz" bubble got nothing. Make the whole face pass taps to its panel
+static void make_taps_reach(lv_obj_t* parent)
+{
+    uint32_t count = lv_obj_get_child_count(parent);
+    for (uint32_t i = 0; i < count; i++) {
+        lv_obj_t* child = lv_obj_get_child(parent, i);
+        lv_obj_remove_flag(child, LV_OBJ_FLAG_CLICKABLE);
+        make_taps_reach(child);
+    }
+}
+
+static void on_face_tap()
+{
+    poke_activity();
+    inner_state::onEvent(inner_state::Event::Touch);
+    if (panda_mandou::onScreenTap()) {
+        return;  // "Touch my face" command in the game
+    }
+
+    static uint32_t last_toggle_tick = 0;
+    const uint32_t now               = GetHAL().millis();
+    if (last_toggle_tick != 0 && now - last_toggle_tick < 2000) {
+        ESP_LOGI(TAG, "Ignoring screen tap: just toggled");
+        return;
+    }
+    if (!hal_bridge::is_xiaozhi_ready()) {
+        ESP_LOGI(TAG, "Ignoring screen tap: assistant not ready yet");
+        return;
+    }
+    if (hal_bridge::is_xiaozhi_idle()) {
+        if (!touch_start_allowed("screen tap")) {
+            return;
+        }
+        _conversation_started_ms.store(now);
+    } else {
+        auto state = Application::GetInstance().GetDeviceState();
+        if (state == kDeviceStateConnecting ||
+            (state == kDeviceStateListening && now - _conversation_started_ms.load() < kNoTapCloseMs)) {
+            ESP_LOGI(TAG, "Ignoring screen tap: conversation is just starting");
+            return;
+        }
+    }
+    last_toggle_tick = now;
+    hal_bridge::toggle_xiaozhi_chat_state();
 }
 
 // "You can talk now": a thin green frame around the screen while listening. Top layer, so it sits over any face;
@@ -354,27 +423,9 @@ void StackChanAvatarDisplay::SetupUI()
         panel  = builtin->getPanel();
         avatar = std::move(builtin);
     }
-    panel->onClick().connect([]() {
-        poke_activity();
-        inner_state::onEvent(inner_state::Event::Touch);
-        if (panda_mandou::onScreenTap()) {
-            return;  // "Touch my face" command in the game
-        }
-
-        static uint32_t last_toggle_tick = 0;
-        const uint32_t now               = GetHAL().millis();
-        if (last_toggle_tick != 0 && now - last_toggle_tick < 2000) {
-            return;
-        }
-
-        if (hal_bridge::is_xiaozhi_ready()) {
-            if (hal_bridge::is_xiaozhi_idle() && !touch_start_allowed("screen tap")) {
-                return;
-            }
-            last_toggle_tick = now;
-            hal_bridge::toggle_xiaozhi_chat_state();
-        }
-    });
+    make_taps_reach(panel->get());
+    // RELEASED, not CLICKED: LVGL drops the click when a small finger slides a little while pressing
+    lv_obj_add_event_cb(panel->get(), [](lv_event_t*) { on_face_tap(); }, LV_EVENT_RELEASED, nullptr);
 
     stackchan.attachAvatar(std::move(avatar));
     stackchan.addModifier(std::make_unique<BreathModifier>());
@@ -737,9 +788,6 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         }
     }
     set_listening_frame(is_listening_status);
-    if (is_listening_status && _is_xiaozhi_idle) {
-        inner_state::onEvent(inner_state::Event::ConversationStart);  // From standby straight to listening
-    }
     papa_letras::onListening(is_listening_status);
     if (is_listening_status) {
         sd_recorder::onListening();
@@ -812,6 +860,12 @@ void StackChanAvatarDisplay::SetStatus(const char* status)
         // Stop idle motion
         ESP_LOGW(TAG, "Stop idle motion");
         StopIdleBehaviors();
+
+        if (_is_xiaozhi_idle) {
+            // Standby -> anything else (connecting, listening): a conversation starts (tap, head tap or wake word)
+            _conversation_started_ms.store(GetHAL().millis());
+            inner_state::onEvent(inner_state::Event::ConversationStart);
+        }
 
         // if (!is_listening) {
         //     // Return to default pose
