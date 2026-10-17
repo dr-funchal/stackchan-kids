@@ -18,7 +18,7 @@ Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/
 - Ferramentas pesam em toda fala do robô (a descrição vai para a IA do xiaozhi.me): o gateway expõe só 4 (com 12, as
   histórias longas engasgavam). Nomes não podem repetir os embutidos do xiaozhi.me: `play_music` gerava o alerta
   "Duplicate tool names" no robô (por isso `family_music`).
-- **Limite de 32 ferramentas visíveis à IA no robô**: em 2026-10-09 são 32, no limite (39 registradas, 7 `[user]` ficam ocultas).
+- **Limite de 32 ferramentas visíveis à IA no robô**: em 2026-10-09 eram 32 (30 desde 2026-10-17), no limite (39 registradas, 7 `[user]` ficam ocultas).
   Antes de criar ferramenta nova no firmware, junte numa existente com parâmetro `action` (como `self.ir`, `self.poker`).
   Em 2026-10-10 `self.skin.list`/`set` viraram `self.skin` para abrir vaga para `self.memory`.
 - Memória de longo prazo: `self.memory` (recall/remember/forget), grafo de fatos `sujeito | relação | objeto` em
@@ -32,7 +32,9 @@ Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/
   conversa, jogos/histórias, chacoalhar). Comandam o `idle_motion` (sonolento, procurando alguém) e o `idle_expression`
   (cara feliz/triste/sonolenta); carinho depois de muita saudade faz o gesto Love. `recall "eu"` no `self.memory` traz
   o corpo (bateria, inclinação desde o boot, tempo sozinho) e as vontades. Não persistem entre reinícios.
-- Músicas no robô: ferramenta de firmware `self.gateway.play_audio` (`main/hal/utils/gateway_audio.cpp`) baixa de
+- Em 2026-10-17 o firmware deixou de usar o gateway (robô lento nas histórias): saíram `self.gateway.play_audio`
+  (`gateway_audio.cpp`) e `self.ir` (o app de controle remoto IR no launcher continua). Ficam 30 ferramentas visíveis.
+  O container na VPS segue rodando; o `family_music` dele não funciona mais no robô.
   `https://m5.pulpfy.com/a/<código>` para `historias/musica_*.ogg` no cartão e toca com o player de histórias.
 
 ## Hardware

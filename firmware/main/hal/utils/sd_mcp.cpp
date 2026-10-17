@@ -3,17 +3,10 @@
  */
 #include "sd_features.h"
 #include "sd_card.h"
-#include "ir_remote.h"
 #include "stories.h"
-#include "gateway_audio.h"
 #include "memory_graph.h"
 #include <stackchan/inner_state/inner_state.h>
 #include <stackchan/avatar/skins/sd/sd_skin.h>
-#include <application.h>
-#include <assets/lang_config.h>
-#include <freertos/idf_additions.h>
-#include <atomic>
-#include <memory>
 #include <mcp_server.h>
 #include <esp_log.h>
 #include <esp_system.h>
@@ -29,35 +22,6 @@ static std::string json_list(const std::vector<std::string>& names)
         json += (json.size() > 1 ? ",\"" : "\"") + name + "\"";
     }
     return json + "]";
-}
-
-// IR learning waits for the remote, so it runs in its own task and answers with a sound
-struct IrLearnJob {
-    std::string name;
-    int seconds;
-};
-static std::atomic<bool> _ir_learning{false};
-
-static void ir_learn(const IrLearnJob* job)
-{
-    std::string error;
-    bool ok = ir_remote::learn(job->name, job->seconds * 1000, error);
-    if (!ok) {
-        ESP_LOGW(TAG, "IR learn failed: %s", error.c_str());
-    }
-    sd_diary::log("sistema", ((ok ? "controle aprendido: " : "controle NAO aprendido: ") + job->name).c_str());
-    Application::GetInstance().Schedule(
-        [ok]() { Application::GetInstance().PlaySound(ok ? Lang::Sounds::OGG_SUCCESS : Lang::Sounds::OGG_EXCLAMATION); });
-}
-
-static void ir_learn_task(void* arg)
-{
-    {
-        std::unique_ptr<IrLearnJob> job(static_cast<IrLearnJob*>(arg));
-        ir_learn(job.get());
-    }  // vTaskDeleteWithCaps never returns: free everything before it
-    _ir_learning.store(false);
-    vTaskDeleteWithCaps(nullptr);
 }
 
 void sd_features_register_mcp_tools()
@@ -145,46 +109,6 @@ void sd_features_register_mcp_tools()
                         "skin_restart", 2048, nullptr, 1, nullptr);
                     return true;
                 });
-
-    // One tool for the remote: the server accepts at most 32 tools in all
-    mcp.AddTool("self.ir",
-                "Infrared remote control (TV, air conditioner, fan, sound system). action: send (press a learned "
-                "button: turn the TV on/off, volume...; partial names work), list (learned buttons), learn (learn a "
-                "new button; use a short name like \"tv_ligar\", \"tv_volume_mais\", \"ar_desligar\"; then tell the "
-                "person to point the remote at your body and press the button now: a chime means learned, an alert "
-                "sound means nothing was received). name = the button.",
-                PropertyList({Property("action", kPropertyTypeString),
-                              Property("name", kPropertyTypeString, std::string(""))}),
-                [](const PropertyList& properties) -> ReturnValue {
-                    std::string action = properties["action"].value<std::string>();
-                    std::string name   = properties["name"].value<std::string>();
-                    if (action == "list" || (action == "send" && name.empty())) {
-                        return json_list(ir_remote::list());
-                    }
-                    if (action == "send") {
-                        std::string error;
-                        if (!ir_remote::send(name, error)) {
-                            return error + ". Learned buttons: " + json_list(ir_remote::list());
-                        }
-                        return true;
-                    }
-                    if (action != "learn" || name.empty()) {
-                        return std::string("Use action send, list or learn (learn needs a name).");
-                    }
-                    if (_ir_learning.exchange(true)) {
-                        return std::string("Already waiting for a remote button.");
-                    }
-                    auto* job = new IrLearnJob{name, 15};
-                    if (xTaskCreatePinnedToCoreWithCaps(ir_learn_task, "ir_learn", 6144, job, 3, nullptr,
-                                                        tskNO_AFFINITY, MALLOC_CAP_SPIRAM) != pdPASS) {
-                        delete job;
-                        _ir_learning.store(false);
-                        return std::string("Cannot start learning.");
-                    }
-                    return std::string("Waiting for the remote button now.");
-                });
-
-    gateway_audio::registerMcpTools();
 
     // Long-term memory (graph of facts) on the card
     memory_graph::registerMcpTool();
