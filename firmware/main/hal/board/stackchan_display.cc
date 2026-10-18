@@ -22,6 +22,7 @@
 #include <hal/utils/papa_letras.h>
 #include <hal/utils/panda_mandou.h>
 #include <hal/utils/poker.h>
+#include <hal/utils/sound_car.h>
 #include <stackchan/inner_state/inner_state.h>
 #include <hal/board/hal_bridge.h>
 #include <application.h>
@@ -460,6 +461,14 @@ void StackChanAvatarDisplay::SetupUI()
             press_tick = now;
             swiped     = false;
         } else if (gesture == HeadPetGesture::SwipeForward || gesture == HeadPetGesture::SwipeBackward) {
+            // The race-car driver face revs its engine on the first stroke of a pet. Only while the agent is
+            // idle: a sound as it starts listening corrupted the heap every time. Not over a story or a game
+            static uint32_t last_vroom_tick = 0;
+            if (!swiped && hal_bridge::is_xiaozhi_ready() && hal_bridge::is_xiaozhi_idle() && !sd_story::isPlaying() &&
+                !papa_letras::isActive() && (last_vroom_tick == 0 || now - last_vroom_tick > 5000)) {
+                last_vroom_tick = now;
+                hal_bridge::app_play_sound(std::string_view(reinterpret_cast<const char*>(kSound_car), kSound_car_size));
+            }
             swiped = true;
         } else if (gesture == HeadPetGesture::Release) {
             bool is_tap = !swiped && press_tick != 0 && now - press_tick < 700;

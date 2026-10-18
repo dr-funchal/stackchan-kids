@@ -12,6 +12,7 @@
 #include <esp_log.h>
 #include <sys/stat.h>
 #include <cstdio>
+#include <cstring>
 
 using namespace uitk::lvgl_cpp;
 using namespace stackchan::avatar;
@@ -21,7 +22,6 @@ static const char* TAG = "SdSkin";
 
 // The skin lives for the whole run; its PNG bytes stay in PSRAM for LVGL's PNG decoder
 static uint8_t* _png_data = nullptr;
-static lv_image_dsc_t _png_dsc;
 
 static std::string active_file()
 {
@@ -54,6 +54,47 @@ static std::string read_file(const std::string& path, size_t maxSize)
     return content;
 }
 
+bool SdSkinAvatar::loadFromMemory(const uint8_t* png, size_t size, const std::string& json)
+{
+    static const uint8_t png_magic[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (size < 33 || memcmp(png, png_magic, 8) != 0) {
+        return false;
+    }
+
+    // Width and height sit big-endian in the IHDR chunk
+    auto be32 = [](const uint8_t* p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; };
+    _png_dsc              = {};
+    _png_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+    _png_dsc.header.cf    = LV_COLOR_FORMAT_RAW_ALPHA;
+    _png_dsc.header.w     = be32(png + 16);
+    _png_dsc.header.h     = be32(png + 20);
+    _png_dsc.data         = png;
+    _png_dsc.data_size    = size;
+
+    if (!json.empty()) {
+        ArduinoJson::JsonDocument doc;
+        if (ArduinoJson::deserializeJson(doc, json) == ArduinoJson::DeserializationError::Ok) {
+            parse_color(doc["olhos"] | "", _eye_color);
+            parse_color(doc["palpebra"] | "", _eyelid_color);
+            parse_color(doc["boca"] | "", _mouth_color);
+            _fangs = doc["presas"] | false;
+            parse_color(doc["pupila"] | "", _pupil_color);
+            parse_color(doc["lingua"] | "", _tongue_color);
+            _glint_eyes  = strcmp(doc["olhos_estilo"] | "", "brilho") == 0;
+            _smile_mouth = strcmp(doc["boca_estilo"] | "", "sorriso") == 0;
+            _flags.clear();
+            for (ArduinoJson::JsonObject flag : doc["bandeiras"].as<ArduinoJson::JsonArray>()) {
+                if (_flags.size() < 4) {
+                    _flags.push_back({flag["x"] | 0, flag["y"] | 0, flag["espelhar"] | false});
+                }
+            }
+        } else {
+            ESP_LOGW(TAG, "Ignoring an invalid skin.json");
+        }
+    }
+    return true;
+}
+
 bool SdSkinAvatar::load(const std::string& dir)
 {
     std::string png_path = dir + "/fundo.png";
@@ -79,33 +120,9 @@ bool SdSkinAvatar::load(const std::string& dir)
     }
     fclose(f);
 
-    static const uint8_t png_magic[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
-    if (memcmp(_png_data, png_magic, 8) != 0) {
+    if (!loadFromMemory(_png_data, st.st_size, read_file(dir + "/skin.json", 2048))) {
         ESP_LOGW(TAG, "%s is not a PNG", png_path.c_str());
         return false;
-    }
-
-    // Width and height sit big-endian in the IHDR chunk
-    auto be32 = [](const uint8_t* p) { return (uint32_t)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]; };
-    _png_dsc              = {};
-    _png_dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
-    _png_dsc.header.cf    = LV_COLOR_FORMAT_RAW_ALPHA;
-    _png_dsc.header.w     = be32(_png_data + 16);
-    _png_dsc.header.h     = be32(_png_data + 20);
-    _png_dsc.data         = _png_data;
-    _png_dsc.data_size    = st.st_size;
-
-    std::string json = read_file(dir + "/skin.json", 2048);
-    if (!json.empty()) {
-        ArduinoJson::JsonDocument doc;
-        if (ArduinoJson::deserializeJson(doc, json) == ArduinoJson::DeserializationError::Ok) {
-            parse_color(doc["olhos"] | "", _eye_color);
-            parse_color(doc["palpebra"] | "", _eyelid_color);
-            parse_color(doc["boca"] | "", _mouth_color);
-            _fangs = doc["presas"] | false;
-        } else {
-            ESP_LOGW(TAG, "Ignoring invalid %s/skin.json", dir.c_str());
-        }
     }
 
     ESP_LOGI(TAG, "Loaded skin %s (%ux%u)", dir.c_str(), (unsigned)_png_dsc.header.w, (unsigned)_png_dsc.header.h);
@@ -128,9 +145,23 @@ void SdSkinAvatar::init(lv_obj_t* parent, const lv_font_t* font)
     _background->setAlign(LV_ALIGN_TOP_LEFT);
     _background->setPos(0, 0);
 
-    _key_elements.leftEye  = std::make_unique<DefaultEyes>(_pannel->get(), _eye_color, _eyelid_color, true);
-    _key_elements.rightEye = std::make_unique<DefaultEyes>(_pannel->get(), _eye_color, _eyelid_color, false);
-    _key_elements.mouth = std::make_unique<PandaMouth>(_pannel->get(), _mouth_color, _fangs ? sd_images::get("halloween/halloween_fang") : nullptr);
+    // Scenery goes under the face elements
+    for (const auto& flag : _flags) {
+        addDecorator(std::make_unique<CheckeredFlagDecorator>(_pannel->get(), flag.x, flag.y, flag.mirrored));
+    }
+
+    if (_glint_eyes) {
+        _key_elements.leftEye  = std::make_unique<GlintEyes>(_pannel->get(), _eye_color, _pupil_color, _eyelid_color, true);
+        _key_elements.rightEye = std::make_unique<GlintEyes>(_pannel->get(), _eye_color, _pupil_color, _eyelid_color, false);
+    } else {
+        _key_elements.leftEye  = std::make_unique<DefaultEyes>(_pannel->get(), _eye_color, _eyelid_color, true);
+        _key_elements.rightEye = std::make_unique<DefaultEyes>(_pannel->get(), _eye_color, _eyelid_color, false);
+    }
+    if (_smile_mouth) {
+        _key_elements.mouth = std::make_unique<SmileMouth>(_pannel->get(), _mouth_color, _tongue_color);
+    } else {
+        _key_elements.mouth = std::make_unique<PandaMouth>(_pannel->get(), _mouth_color, _fangs ? sd_images::get("halloween/halloween_fang") : nullptr);
+    }
     (void)font;  // No speech bubble, like the Halloween face
 }
 

@@ -6,6 +6,7 @@
 #include "../../avatar/decorator.h"
 #include "../../avatar/elements/feature.h"
 #include "../default/default.h"
+#include "../piloto/piloto.h"
 #include <lvgl.h>
 #include <smooth_lvgl.hpp>
 #include <memory>
@@ -124,17 +125,23 @@ void setSceneryPaused(bool paused);
  */
 void setSceneryFrozen(bool frozen);
 
+// Current state of the two switches above, for other animated scenery (e.g. the SD skins' flags)
+bool isSceneryPaused();
+bool isSceneryFrozen();
+
 /**
- * @brief Avatar used by the face screens. Switch back to PandaAvatar (or DefaultAvatar) after October
+ * @brief Avatar used by the face screens (was HalloweenPandaAvatar until 2026-10-18; PandaAvatar and DefaultAvatar
+ * also work)
  */
-using CurrentAvatar = HalloweenPandaAvatar;
+using CurrentAvatar = PilotAvatar;
 
 /**
  * @brief Who the robot is with the built-in face, told to the AI (sd_skin::activeIdentity). Change it together with
  * CurrentAvatar; SD skins bring their own in skin.json ("identidade")
  */
 inline constexpr const char* kCurrentAvatarIdentity =
-    "a panda dressed up as a vampire for Halloween: glowing orange eyes, little fangs, a witch hat, and bats, "
-    "pumpkins and a spider around you on the screen";
+    "a little race-car driver: a red racing helmet with yellow hot-rod flames and the number 1, golden driving "
+    "goggles, Lego wheels and two yellow antennas, with an orange loop track, racing curbs and waving checkered "
+    "flags around you on the screen; you love racing, speed and loops";
 
 }  // namespace stackchan::avatar

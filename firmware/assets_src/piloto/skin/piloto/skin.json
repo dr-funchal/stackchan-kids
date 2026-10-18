@@ -1,0 +1,22 @@
+{
+  "olhos": "#FFFFFF",
+  "palpebra": "#14213D",
+  "pupila": "#1B1B3A",
+  "boca": "#5A1E1E",
+  "lingua": "#FF7A8A",
+  "olhos_estilo": "brilho",
+  "boca_estilo": "sorriso",
+  "presas": false,
+  "bandeiras": [
+    {
+      "x": 12,
+      "y": 10
+    },
+    {
+      "x": 272,
+      "y": 10,
+      "espelhar": true
+    }
+  ],
+  "identidade": "a little race-car driver: a red racing helmet with yellow hot-rod flames and the number 1, golden driving goggles, Lego wheels and two yellow antennas, with an orange loop track, racing curbs and waving checkered flags around you on the screen; you love racing, speed and loops"
+}

@@ -45,6 +45,16 @@ void stackchan::avatar::setSceneryFrozen(bool frozen)
     _scenery_frozen.store(frozen);
 }
 
+bool stackchan::avatar::isSceneryPaused()
+{
+    return _scenery_paused.load();
+}
+
+bool stackchan::avatar::isSceneryFrozen()
+{
+    return _scenery_frozen.load();
+}
+
 static float wave(uint32_t now, uint32_t periodMs, uint32_t phaseMs = 0)
 {
     return std::sin(2.0f * (float)M_PI * (float)((now + phaseMs) % periodMs) / (float)periodMs);

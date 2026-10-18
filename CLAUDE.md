@@ -27,6 +27,11 @@ Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/
 - Identidade ("quem eu sou") vem da cara: `kCurrentAvatarIdentity` em `skins/panda/panda.h` para a cara embutida,
   `"identidade"` no `skin.json` das skins do cartão (`sd_skin::activeIdentity()`). Vai na descrição de `self.memory`;
   trocar de skin reinicia o robô e a IA passa a saber da nova roupa. Ao trocar `CurrentAvatar`, troque a identidade junto.
+- Cara embutida desde 2026-10-18: Lucas Piloto (`PilotAvatar`, `skins/piloto/`), uma skin de cartão com o fundo e o
+  `skin.json` embutidos no firmware (`piloto_assets.c`, gerado por `assets_src/piloto/build_skin.py`). As skins do cartão
+  aceitam `olhos_estilo: "brilho"`, `boca_estilo: "sorriso"` e `bandeiras` (`skins/sd/sd_parts.cpp`). Carinho na cabeça
+  toca `sound_car.h` ("vrum"), só com o agente ocioso. A de Halloween continua no código (`HalloweenPandaAvatar`).
+  A usuária não consegue tirar o cartão: troca de cara que precise valer já vai para o firmware, não para o cartão.
 - Vontades internas (`main/stackchan/inner_state/`, teste em `tests/inner_state_test.cpp`): energia, saudade,
   curiosidade e humor (0..100) mudam com o tempo (avançam no `NapCheck`, a cada 250 ms) e com eventos (carinho, toque,
   conversa, jogos/histórias, chacoalhar). Comandam o `idle_motion` (sonolento, procurando alguém) e o `idle_expression`
