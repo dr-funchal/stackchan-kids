@@ -7,7 +7,6 @@
 #include "power_save_timer.h"
 #include <hal/utils/sd_card.h>
 #include <hal/utils/sd_features.h>
-#include <hal/utils/ir_remote.h>
 #include <hal/utils/stories.h>
 #include "i2c_device.h"
 #include "axp2101.h"

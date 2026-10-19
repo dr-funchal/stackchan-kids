@@ -14,33 +14,6 @@
 namespace stackchan::avatar {
 
 /**
- * @brief Panda face: white face, black ears and eye patches, black nose, small round mouth.
- * Reuses DefaultEyes (white eye, black eyelid) and DefaultSpeechBubble
- */
-class PandaAvatar : public Avatar {
-public:
-    lv_color_t furColor   = lv_color_white();
-    lv_color_t patchColor = lv_color_black();
-    lv_color_t cheekColor = lv_color_hex(0xFFB3C6);
-
-    void init(lv_obj_t* parent, const lv_font_t* font = &lv_font_montserrat_16);
-    uitk::lvgl_cpp::Container* getPanel() const;
-
-private:
-    std::unique_ptr<uitk::lvgl_cpp::Container> make_shape(lv_color_t color, int w, int h, int x, int y,
-                                                          lv_opa_t opa = LV_OPA_COVER);
-
-    std::unique_ptr<uitk::lvgl_cpp::Container> _pannel;
-    std::unique_ptr<uitk::lvgl_cpp::Container> _left_ear;
-    std::unique_ptr<uitk::lvgl_cpp::Container> _right_ear;
-    std::unique_ptr<uitk::lvgl_cpp::Container> _left_patch;
-    std::unique_ptr<uitk::lvgl_cpp::Container> _right_patch;
-    std::unique_ptr<uitk::lvgl_cpp::Container> _left_cheek;
-    std::unique_ptr<uitk::lvgl_cpp::Container> _right_cheek;
-    std::unique_ptr<uitk::lvgl_cpp::Container> _nose;
-};
-
-/**
  * @brief Small round mouth that opens into an "o", optionally with fang images hanging from its top edge
  */
 class PandaMouth : public Feature {
@@ -130,8 +103,7 @@ bool isSceneryPaused();
 bool isSceneryFrozen();
 
 /**
- * @brief Avatar used by the face screens (was HalloweenPandaAvatar until 2026-10-18; PandaAvatar and DefaultAvatar
- * also work)
+ * @brief Avatar used by the face screens (was HalloweenPandaAvatar until 2026-10-18; DefaultAvatar also works)
  */
 using CurrentAvatar = PilotAvatar;
 
