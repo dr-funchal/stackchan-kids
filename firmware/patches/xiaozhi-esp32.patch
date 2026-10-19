@@ -1,8 +1,24 @@
 diff --git a/main/application.cc b/main/application.cc
-index d69d43d..df635fc 100644
+index d69d43d..ce3ed9a 100644
 --- a/main/application.cc
 +++ b/main/application.cc
-@@ -610,33 +610,36 @@ void Application::InitializeProtocol() {
+@@ -1,3 +1,4 @@
++#include <hal/utils/sound_car.h>
+ #include "application.h"
+ #include "board.h"
+ #include "display.h"
+@@ -315,8 +316,8 @@ void Application::HandleActivationDoneEvent() {
+     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+ 
+     Schedule([this]() {
+-        // Play the success sound to indicate the device is ready
+-        audio_service_.PlaySound(Lang::Sounds::OGG_SUCCESS);
++        // Stack-chan: the race-car driver revs its engine when it is ready, instead of the success chime
++        audio_service_.PlaySound(std::string_view(reinterpret_cast<const char*>(kSound_car), kSound_car_size));
+     });
+ }
+ 
+@@ -610,33 +611,36 @@ void Application::InitializeProtocol() {
  }
  
  void Application::ShowActivationCode(const std::string& code, const std::string& message) {
@@ -66,7 +82,7 @@ index d69d43d..df635fc 100644
  }
  
  void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {
-@@ -1016,6 +1019,14 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
+@@ -1016,6 +1020,14 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
      }
  }
  

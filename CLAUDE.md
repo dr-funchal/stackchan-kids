@@ -30,7 +30,8 @@ Clone de https://github.com/m5stack/StackChan. O trabalho acontece em `firmware/
 - Cara embutida desde 2026-10-18: Lucas Piloto (`PilotAvatar`, `skins/piloto/`), uma skin de cartão com o fundo e o
   `skin.json` embutidos no firmware (`piloto_assets.c`, gerado por `assets_src/piloto/build_skin.py`). As skins do cartão
   aceitam `olhos_estilo: "brilho"`, `boca_estilo: "sorriso"` e `bandeiras` (`skins/sd/sd_parts.cpp`). Carinho na cabeça
-  toca `sound_car.h` ("vrum"), só com o agente ocioso. A de Halloween continua no código (`HalloweenPandaAvatar`).
+  toca `sound_car.h` ("vrum"), só com o agente ocioso; o mesmo som substitui o "plim" de pronto no boot
+  (`application.cc`, no patch). A de Halloween continua no código (`HalloweenPandaAvatar`).
   A usuária não consegue tirar o cartão: troca de cara que precise valer já vai para o firmware, não para o cartão.
 - Vontades internas (`main/stackchan/inner_state/`, teste em `tests/inner_state_test.cpp`): energia, saudade,
   curiosidade e humor (0..100) mudam com o tempo (avançam no `NapCheck`, a cada 250 ms) e com eventos (carinho, toque,
